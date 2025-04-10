@@ -7,13 +7,20 @@ interface Job {
   'Job Description': string;
 }
 
+interface Application {
+  jobTitle: string;
+  applicantName: string;
+  resumeFile: string;
+  appliedAt: string;
+}
+
 function AdminPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [resumes, setResumes] = useState<string[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
 
   useEffect(() => {
     fetchJobs();
-    fetchResumes();
+    fetchApplications();
   }, []);
 
   const fetchJobs = async () => {
@@ -25,12 +32,12 @@ function AdminPage() {
     }
   };
 
-  const fetchResumes = async () => {
+  const fetchApplications = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/resumes');
-      setResumes(response.data);
+      const response = await axios.get('http://localhost:5000/api/applications');
+      setApplications(response.data);
     } catch (error) {
-      console.error('Error fetching resumes:', error);
+      console.error('Error fetching applications:', error);
     }
   };
 
@@ -47,12 +54,22 @@ function AdminPage() {
           },
         });
         alert('Jobs uploaded successfully!');
-        fetchJobs(); // Refresh the jobs list
+        fetchJobs();
       } catch (error) {
         console.error('Error uploading CSV:', error);
         alert('Error uploading CSV file');
       }
     }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -75,32 +92,39 @@ function AdminPage() {
 
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6">
-          <h2 className="text-2xl font-bold mb-4">Uploaded Jobs</h2>
-          <div className="space-y-4">
+          <h2 className="text-2xl font-bold mb-4">Job Applications</h2>
+          <div className="space-y-6">
             {jobs.map((job, index) => (
-              <div
-                key={index}
-                className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-              >
-                <h3 className="text-lg font-semibold">{job['Job Title']}</h3>
-                <p className="text-gray-600 mt-2">{job['Job Description']}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white shadow sm:rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h2 className="text-2xl font-bold mb-4">Submitted Resumes</h2>
-          <div className="space-y-4">
-            {resumes.map((resume, index) => (
-              <div
-                key={index}
-                className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50"
-              >
-                <FileText className="w-5 h-5 text-gray-500" />
-                <span>{resume}</span>
+              <div key={index} className="border rounded-lg p-4">
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                  {job['Job Title']}
+                </h3>
+                <div className="space-y-4">
+                  {applications
+                    .filter(app => app.jobTitle === job['Job Title'])
+                    .map((application, appIndex) => (
+                      <div
+                        key={appIndex}
+                        className="bg-gray-50 rounded-lg p-4 flex items-start justify-between"
+                      >
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {application.applicantName}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Applied: {formatDate(application.appliedAt)}
+                          </p>
+                          <div className="mt-2 flex items-center text-sm text-gray-500">
+                            <FileText className="w-4 h-4 mr-2" />
+                            {application.resumeFile}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  {applications.filter(app => app.jobTitle === job['Job Title']).length === 0 && (
+                    <p className="text-gray-500 italic">No applications yet</p>
+                  )}
+                </div>
               </div>
             ))}
           </div>
