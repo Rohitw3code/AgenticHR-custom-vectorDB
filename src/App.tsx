@@ -1,32 +1,46 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import Navbar from './components/Navbar';
-import Landing from './pages/Landing';
-import AdminLogin from './pages/AdminLogin';
-import UserLogin from './pages/UserLogin';
-import AdminDashboard from './pages/AdminDashboard';
-import UserDashboard from './pages/UserDashboard';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { UserCircle, Building2 } from 'lucide-react';
+import UserPage from './pages/UserPage';
+import AdminPage from './pages/AdminPage';
 
 function App() {
   return (
     <Router>
-      <AuthProvider>
-        <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-50 to-gray-100 dark:from-cyber-900 dark:via-cyber-800 dark:to-cyber-900 transition-colors duration-300">
-          <Navbar />
-          <div className="pt-16">
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/admin-login" element={<AdminLogin />} />
-              <Route path="/user-login" element={<UserLogin />} />
-              <Route path="/admin-dashboard" element={<AdminDashboard />} />
-              <Route path="/user-dashboard" element={<UserDashboard />} />
-            </Routes>
+      <div className="min-h-screen bg-gray-100">
+        <nav className="bg-white shadow-lg">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex justify-between h-16">
+              <div className="flex space-x-8">
+                <Link
+                  to="/user"
+                  className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+                >
+                  <UserCircle className="w-5 h-5 mr-2" />
+                  User Portal
+                </Link>
+                <Link
+                  to="/admin"
+                  className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+                >
+                  <Building2 className="w-5 h-5 mr-2" />
+                  Admin Portal
+                </Link>
+              </div>
+            </div>
           </div>
+        </nav>
+
+        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+          <Routes>
+            <Route path="/user" element={<UserPage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/" element={<UserPage />} />
+          </Routes>
         </div>
-      </AuthProvider>
+      </div>
     </Router>
   );
 }
 
-export default App
+export default App;
