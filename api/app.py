@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 import csv
 import json
+import sqlite3
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
@@ -14,6 +15,7 @@ UPLOAD_FOLDER = 'uploads'
 JOBS_FOLDER = os.path.join(UPLOAD_FOLDER, 'jobs')
 RESUMES_FOLDER = os.path.join(UPLOAD_FOLDER, 'resumes')
 APPLICATIONS_FILE = os.path.join(UPLOAD_FOLDER, 'applications.json')
+DATABASE_FILE = os.path.join(UPLOAD_FOLDER, 'applications.db')
 
 # Create upload folders if they don't exist
 os.makedirs(JOBS_FOLDER, exist_ok=True)
@@ -26,6 +28,22 @@ current_jobs_file = None
 if not os.path.exists(APPLICATIONS_FILE):
     with open(APPLICATIONS_FILE, 'w') as f:
         json.dump([], f)
+
+def init_db():
+    conn = sqlite3.connect(DATABASE_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS applications (
+            username TEXT PRIMARY KEY,
+            resume_text TEXT,
+            job_title TEXT,
+            applied_at TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
 
 @app.route('/api/jobs/upload', methods=['POST'])
 def upload_jobs():
@@ -109,6 +127,43 @@ def upload_resume():
         return jsonify({'message': 'Resume uploaded successfully', 'filename': filename}), 200
     
     return jsonify({'error': 'Invalid file type'}), 400
+
+@app.route('/api/start-ai-selection', methods=['POST'])
+def start_ai_selection():
+    try:
+        # Read all applications
+        with open(APPLICATIONS_FILE, 'r') as f:
+            applications = json.load(f)
+        
+        # Connect to SQLite database
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Process each application
+        for app in applications:
+            # In a real implementation, we would read and process the PDF here
+            # For now, we'll just store the filename as placeholder text
+            c.execute('''
+                INSERT OR REPLACE INTO applications 
+                (username, resume_text, job_title, applied_at) 
+                VALUES (?, ?, ?, ?)
+            ''', (
+                app['applicantName'],
+                f"Resume content from {app['resumeFile']}",  # Placeholder
+                app['jobTitle'],
+                app['appliedAt']
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': 'AI selection completed',
+            'processed': len(applications)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
