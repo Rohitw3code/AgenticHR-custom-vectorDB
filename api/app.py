@@ -7,6 +7,8 @@ import sqlite3
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import io
+from langchain.document_loaders import PyMuPDFLoader 
+
 
 app = Flask(__name__)
 CORS(app)
@@ -179,31 +181,38 @@ def upload_resume():
 
 @app.route('/api/extract-pdf-data', methods=['POST'])
 def extract_pdf_data():
-    try:
-        if not os.path.exists(APPLICATIONS_FILE):
-            return jsonify({'extracted_data': []})
+    # try:
+    if not os.path.exists(APPLICATIONS_FILE):
+        return jsonify({'extracted_data': []})
 
-        with open(APPLICATIONS_FILE, 'r') as f:
-            applications = json.load(f)
-        
-        extracted_data = []
-        for application in applications:
-            resume_path = os.path.join(RESUMES_FOLDER, application['resumeFile'])
-            if os.path.exists(resume_path):
-                extracted_data.append({
-                    'username': application['applicantName'],
-                    'resume_text': f"Extracted text from {application['resumeFile']}",
-                    'job_title': application['jobTitle'],
-                    'applied_at': application['appliedAt']
-                })
-        
-        return jsonify({
-            'message': 'PDF data extracted successfully',
-            'extracted_data': extracted_data
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    with open(APPLICATIONS_FILE, 'r') as f:
+        applications = json.load(f)
+
+    extracted_data = []
+
+    for application in applications:
+        resume_path = os.path.join(RESUMES_FOLDER, application['resumeFile'])
+
+        if os.path.exists(resume_path):
+            # Use LangChain to load and extract text
+            loader = PyMuPDFLoader(resume_path)
+            docs = loader.load()
+            resume_text = "\n".join([doc.page_content for doc in docs])
+
+            extracted_data.append({
+                'username': application['applicantName'],
+                'resume_text': resume_text,
+                'job_title': application['jobTitle'],
+                'applied_at': application['appliedAt']
+            })
+
+    return jsonify({
+        'message': 'PDF data extracted successfully',
+        'extracted_data': extracted_data
+    }), 200
+
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
 
 @app.route('/api/start-ai-selection', methods=['POST'])
 def start_ai_selection():
