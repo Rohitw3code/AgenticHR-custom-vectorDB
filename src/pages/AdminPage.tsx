@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Timer } from 'lucide-react';
 import axios from 'axios';
+import JobUploader from '../components/JobUploader';
+import WorkflowStatus from '../components/WorkflowStatus';
+import JobList from '../components/JobList';
 
 interface Job {
   'Job Title': string;
@@ -14,13 +16,22 @@ interface Application {
   appliedAt: string;
 }
 
+interface WorkflowStep {
+  title: string;
+  status: 'pending' | 'processing' | 'completed';
+}
+
 function AdminPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
-  const [expandedJobs, setExpandedJobs] = useState<{ [key: string]: boolean }>({});
   const [processing, setProcessing] = useState(false);
   const [timer, setTimer] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
+    { title: 'Organizing Resumes', status: 'pending' },
+    { title: 'Extracting Data', status: 'pending' },
+    { title: 'Storing in Database', status: 'pending' }
+  ]);
 
   useEffect(() => {
     fetchJobs();
@@ -36,6 +47,47 @@ function AdminPage() {
     }
     return () => clearInterval(interval);
   }, [timerActive]);
+
+  const updateStepStatus = (stepIndex: number, status: 'pending' | 'processing' | 'completed') => {
+    setWorkflowSteps(steps => steps.map((step, index) => 
+      index === stepIndex ? { ...step, status } : step
+    ));
+  };
+
+  const extractDataFromPDF = async () => {
+    try {
+      // Step 1: Organizing Resumes
+      updateStepStatus(0, 'processing');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(0, 'completed');
+
+      // Step 2: Extracting Data
+      updateStepStatus(1, 'processing');
+      const response = await axios.post('http://localhost:5000/api/extract-pdf-data');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(1, 'completed');
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error extracting PDF data:', error);
+      throw error;
+    }
+  };
+
+  const saveToDatabase = async (extractedData: any) => {
+    try {
+      // Step 3: Storing in Database
+      updateStepStatus(2, 'processing');
+      const response = await axios.post('http://localhost:5000/api/start-ai-selection', extractedData);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(2, 'completed');
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error saving to database:', error);
+      throw error;
+    }
+  };
 
   const fetchJobs = async () => {
     try {
@@ -55,82 +107,30 @@ function AdminPage() {
     }
   };
 
-  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      const file = event.target.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        await axios.post('http://localhost:5000/api/jobs/upload', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-        alert('Jobs uploaded successfully!');
-        fetchJobs();
-      } catch (error) {
-        console.error('Error uploading CSV:', error);
-        alert('Error uploading CSV file');
-      }
-    }
-  };
-
   const startAISelection = async () => {
     setProcessing(true);
     setTimerActive(true);
     setTimer(0);
+    setWorkflowSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));
     
     try {
-      const response = await axios.post('http://localhost:5000/api/start-ai-selection');
-      alert(`AI Selection completed! Processed ${response.data.processed} applications.`);
+      const extractedData = await extractDataFromPDF();
+      await saveToDatabase(extractedData);
+      fetchApplications(); // Refresh the applications list
     } catch (error) {
-      console.error('Error during AI selection:', error);
-      alert('Error during AI selection process');
+      console.error('Error during AI selection process:', error);
+      setWorkflowSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));
     } finally {
       setProcessing(false);
       setTimerActive(false);
     }
   };
 
-  const toggleJobExpansion = (jobTitle: string) => {
-    setExpandedJobs(prev => ({
-      ...prev,
-      [jobTitle]: !prev[jobTitle]
-    }));
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   return (
     <div className="space-y-8">
       <div className="bg-white shadow sm:rounded-lg p-6">
-        <h2 className="text-2xl font-bold mb-4">Upload Jobs (CSV)</h2>
         <div className="flex items-center space-x-4">
-          <label className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md cursor-pointer hover:bg-blue-700">
-            <Upload className="w-5 h-5 mr-2" />
-            Upload CSV
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleCSVUpload}
-              className="hidden"
-            />
-          </label>
+          <JobUploader onUploadSuccess={fetchJobs} />
           <button
             onClick={startAISelection}
             disabled={processing}
@@ -138,75 +138,14 @@ function AdminPage() {
               processing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
             }`}
           >
-            {processing ? (
-              <>
-                <Timer className="w-5 h-5 mr-2 animate-spin" />
-                Processing ({formatTime(timer)})
-              </>
-            ) : (
-              'Start AI Selection'
-            )}
+            {processing ? `Processing (${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')})` : 'Start AI Selection'}
           </button>
         </div>
+
+        {processing && <WorkflowStatus steps={workflowSteps} />}
       </div>
 
-      <div className="bg-white shadow sm:rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h2 className="text-2xl font-bold mb-4">Job Applications</h2>
-          <div className="space-y-6">
-            {jobs.map((job, index) => (
-              <div key={index} className="border rounded-lg p-4">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    {job['Job Title']}
-                  </h3>
-                  <button
-                    onClick={() => toggleJobExpansion(job['Job Title'])}
-                    className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    {expandedJobs[job['Job Title']] ? 'Show Less' : 'Learn More'}
-                  </button>
-                </div>
-                
-                {expandedJobs[job['Job Title']] && (
-                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <p className="text-gray-700 whitespace-pre-wrap">
-                      {job['Job Description']}
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-4">
-                  {applications
-                    .filter(app => app.jobTitle === job['Job Title'])
-                    .map((application, appIndex) => (
-                      <div
-                        key={appIndex}
-                        className="bg-gray-50 rounded-lg p-4 flex items-start justify-between"
-                      >
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            {application.applicantName}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            Applied: {formatDate(application.appliedAt)}
-                          </p>
-                          <div className="mt-2 flex items-center text-sm text-gray-500">
-                            <FileText className="w-4 h-4 mr-2" />
-                            {application.resumeFile}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  {applications.filter(app => app.jobTitle === job['Job Title']).length === 0 && (
-                    <p className="text-gray-500 italic">No applications yet</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <JobList jobs={jobs} applications={applications} />
     </div>
   );
 }

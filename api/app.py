@@ -37,7 +37,8 @@ def init_db():
             username TEXT PRIMARY KEY,
             resume_text TEXT,
             job_title TEXT,
-            applied_at TEXT
+            applied_at TEXT,
+            extracted_data TEXT
         )
     ''')
     conn.commit()
@@ -128,30 +129,57 @@ def upload_resume():
     
     return jsonify({'error': 'Invalid file type'}), 400
 
-@app.route('/api/start-ai-selection', methods=['POST'])
-def start_ai_selection():
+@app.route('/api/extract-pdf-data', methods=['POST'])
+def extract_pdf_data():
     try:
-        # Read all applications
+        # Read all applications from the JSON file
         with open(APPLICATIONS_FILE, 'r') as f:
             applications = json.load(f)
         
+        extracted_data = []
+        for application in applications:
+            resume_path = os.path.join(RESUMES_FOLDER, application['resumeFile'])
+            if os.path.exists(resume_path):
+                # Simulate PDF text extraction
+                # In a real implementation, you would use a PDF parsing library here
+                extracted_data.append({
+                    'username': application['applicantName'],
+                    'resume_text': f"Extracted text from {application['resumeFile']}",
+                    'job_title': application['jobTitle'],
+                    'applied_at': application['appliedAt']
+                })
+        
+        return jsonify({
+            'message': 'PDF data extracted successfully',
+            'extracted_data': extracted_data
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/start-ai-selection', methods=['POST'])
+def start_ai_selection():
+    try:
+        data = request.json
+        if not data or 'extracted_data' not in data:
+            return jsonify({'error': 'No extracted data provided'}), 400
+            
         # Connect to SQLite database
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
         
-        # Process each application
-        for app in applications:
-            # In a real implementation, we would read and process the PDF here
-            # For now, we'll just store the filename as placeholder text
+        # Process each application's extracted data
+        for entry in data['extracted_data']:
             c.execute('''
                 INSERT OR REPLACE INTO applications 
-                (username, resume_text, job_title, applied_at) 
-                VALUES (?, ?, ?, ?)
+                (username, resume_text, job_title, applied_at, extracted_data) 
+                VALUES (?, ?, ?, ?, ?)
             ''', (
-                app['applicantName'],
-                f"Resume content from {app['resumeFile']}",  # Placeholder
-                app['jobTitle'],
-                app['appliedAt']
+                entry['username'],
+                entry['resume_text'],
+                entry['job_title'],
+                entry['applied_at'],
+                json.dumps(entry)  # Store the full extracted data as JSON
             ))
         
         conn.commit()
@@ -159,7 +187,7 @@ def start_ai_selection():
         
         return jsonify({
             'message': 'AI selection completed',
-            'processed': len(applications)
+            'processed': len(data['extracted_data'])
         }), 200
         
     except Exception as e:
