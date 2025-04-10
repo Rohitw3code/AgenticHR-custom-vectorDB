@@ -6,6 +6,7 @@ import json
 import sqlite3
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import io
 
 app = Flask(__name__)
 CORS(app)
@@ -20,11 +21,9 @@ DATABASE_FILE = os.path.join(UPLOAD_FOLDER, 'applications.db')
 # Create upload folders if they don't exist
 os.makedirs(JOBS_FOLDER, exist_ok=True)
 os.makedirs(RESUMES_FOLDER, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Store the current jobs CSV filename
-current_jobs_file = None
-
-# Initialize applications file if it doesn't exist
+# Initialize applications.json if it doesn't exist
 if not os.path.exists(APPLICATIONS_FILE):
     with open(APPLICATIONS_FILE, 'w') as f:
         json.dump([], f)
@@ -41,6 +40,14 @@ def init_db():
             extracted_data TEXT
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -48,34 +55,61 @@ init_db()
 
 @app.route('/api/jobs/upload', methods=['POST'])
 def upload_jobs():
-    global current_jobs_file
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    
+
     if file and file.filename.endswith('.csv'):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(JOBS_FOLDER, filename)
-        file.save(filepath)
-        current_jobs_file = filename
-        return jsonify({'message': 'File uploaded successfully'}), 200
-    
+        try:
+            # Attempt to decode with utf-8, fallback to cp1252 if it fails
+            try:
+                csv_content = file.read().decode('utf-8')
+            except UnicodeDecodeError:
+                file.seek(0)
+                csv_content = file.read().decode('cp1252')  # fallback encoding
+
+            csv_file = io.StringIO(csv_content)
+            csv_reader = csv.DictReader(csv_file)
+
+            # Connect to SQLite
+            conn = sqlite3.connect(DATABASE_FILE)
+            c = conn.cursor()
+
+            # Clear existing jobs
+            c.execute('DELETE FROM jobs')
+
+            # Insert new jobs
+            for row in csv_reader:
+                c.execute('''
+                    INSERT INTO jobs (title, description)
+                    VALUES (?, ?)
+                ''', (row['Job Title'], row['Job Description']))
+
+            conn.commit()
+            conn.close()
+
+            return jsonify({'message': 'Jobs uploaded successfully'}), 200
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
     return jsonify({'error': 'Invalid file type'}), 400
 
 @app.route('/api/jobs', methods=['GET'])
 def get_jobs():
-    if not current_jobs_file:
-        return jsonify([])
-    
-    jobs = []
     try:
-        with open(os.path.join(JOBS_FOLDER, current_jobs_file), 'r') as file:
-            csv_reader = csv.DictReader(file)
-            jobs = list(csv_reader)
-        return jsonify(jobs)
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        c.execute('SELECT title, description FROM jobs')
+        jobs = c.fetchall()
+        conn.close()
+        
+        # Convert to list of dictionaries
+        jobs_list = [{'Job Title': job[0], 'Job Description': job[1]} for job in jobs]
+        return jsonify(jobs_list)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -86,9 +120,19 @@ def apply_job():
         return jsonify({'error': 'Missing required fields'}), 400
 
     try:
-        with open(APPLICATIONS_FILE, 'r') as f:
-            applications = json.load(f)
+        # Ensure applications.json exists and is valid
+        if not os.path.exists(APPLICATIONS_FILE):
+            with open(APPLICATIONS_FILE, 'w') as f:
+                json.dump([], f)
+
+        # Read existing applications
+        try:
+            with open(APPLICATIONS_FILE, 'r') as f:
+                applications = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            applications = []
         
+        # Add new application
         applications.append({
             'jobTitle': data['jobTitle'],
             'applicantName': data['applicantName'],
@@ -96,6 +140,7 @@ def apply_job():
             'appliedAt': datetime.now().isoformat()
         })
         
+        # Write back to file
         with open(APPLICATIONS_FILE, 'w') as f:
             json.dump(applications, f)
         
@@ -106,6 +151,9 @@ def apply_job():
 @app.route('/api/applications', methods=['GET'])
 def get_applications():
     try:
+        if not os.path.exists(APPLICATIONS_FILE):
+            return jsonify([])
+            
         with open(APPLICATIONS_FILE, 'r') as f:
             applications = json.load(f)
         return jsonify(applications)
@@ -132,7 +180,9 @@ def upload_resume():
 @app.route('/api/extract-pdf-data', methods=['POST'])
 def extract_pdf_data():
     try:
-        # Read all applications from the JSON file
+        if not os.path.exists(APPLICATIONS_FILE):
+            return jsonify({'extracted_data': []})
+
         with open(APPLICATIONS_FILE, 'r') as f:
             applications = json.load(f)
         
@@ -140,8 +190,6 @@ def extract_pdf_data():
         for application in applications:
             resume_path = os.path.join(RESUMES_FOLDER, application['resumeFile'])
             if os.path.exists(resume_path):
-                # Simulate PDF text extraction
-                # In a real implementation, you would use a PDF parsing library here
                 extracted_data.append({
                     'username': application['applicantName'],
                     'resume_text': f"Extracted text from {application['resumeFile']}",
@@ -164,11 +212,9 @@ def start_ai_selection():
         if not data or 'extracted_data' not in data:
             return jsonify({'error': 'No extracted data provided'}), 400
             
-        # Connect to SQLite database
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
         
-        # Process each application's extracted data
         for entry in data['extracted_data']:
             c.execute('''
                 INSERT OR REPLACE INTO applications 
@@ -179,7 +225,7 @@ def start_ai_selection():
                 entry['resume_text'],
                 entry['job_title'],
                 entry['applied_at'],
-                json.dumps(entry)  # Store the full extracted data as JSON
+                json.dumps(entry)
             ))
         
         conn.commit()
