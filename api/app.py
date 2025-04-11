@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 import io
 from langchain.document_loaders import PyMuPDFLoader 
+from utils import job_summurizer
 
 
 app = Flask(__name__)
@@ -29,6 +30,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 if not os.path.exists(APPLICATIONS_FILE):
     with open(APPLICATIONS_FILE, 'w') as f:
         json.dump([], f)
+
+
+
 
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
