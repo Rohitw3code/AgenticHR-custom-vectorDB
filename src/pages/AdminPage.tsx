@@ -3,7 +3,7 @@ import axios from 'axios';
 import JobUploader from '../components/JobUploader';
 import WorkflowStatus from '../components/WorkflowStatus';
 import JobList from '../components/JobList';
-import { FileText, Brain, Star, Mail, UserCheck } from 'lucide-react';
+import { FileText, Brain, Star, Mail, UserCheck, Award, Calendar, CheckCircle } from 'lucide-react';
 
 interface Job {
   id: number;
@@ -25,6 +25,15 @@ interface Application {
   invitationSent: boolean;
 }
 
+interface SelectedCandidate {
+  id: number;
+  username: string;
+  jobTitle: string;
+  matchScore: number;
+  selectedAt: string;
+  invitationSent: boolean;
+}
+
 interface WorkflowStep {
   title: string;
   status: 'pending' | 'processing' | 'completed';
@@ -34,6 +43,7 @@ interface WorkflowStep {
 function AdminPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [selectedCandidates, setSelectedCandidates] = useState<SelectedCandidate[]>([]);
   const [processing, setProcessing] = useState(false);
   const [timer, setTimer] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
@@ -50,6 +60,7 @@ function AdminPage() {
   useEffect(() => {
     fetchJobs();
     fetchApplications();
+    fetchSelectedCandidates();
   }, []);
 
   useEffect(() => {
@@ -154,6 +165,15 @@ function AdminPage() {
     }
   };
 
+  const fetchSelectedCandidates = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/selected-candidates');
+      setSelectedCandidates(response.data);
+    } catch (error) {
+      console.error('Error fetching selected candidates:', error);
+    }
+  };
+
   const startAISelection = async () => {
     setProcessing(true);
     setTimerActive(true);
@@ -176,30 +196,100 @@ function AdminPage() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatMatchScore = (score: number) => {
+    return `${(score * 100).toFixed(1)}%`;
+  };
+
   return (
     <div className="space-y-8">
-      <div className="bg-white shadow sm:rounded-lg p-6">
-        <div className="flex items-center space-x-4">
-          <JobUploader onUploadSuccess={fetchJobs} />
-          <button
-            onClick={startAISelection}
-            disabled={processing}
-            className={`flex items-center px-4 py-2 rounded-md text-white ${
-              processing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {processing ? `Processing (${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')})` : 'Start AI Selection'}
-          </button>
-        </div>
-
-        <WorkflowStatus 
-          steps={workflowSteps} 
-          selectedCount={selectedCount}
-          invitationsSent={invitationsSent}
-        />
+      <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-8 rounded-xl shadow-2xl">
+        <h1 className="text-3xl font-bold mb-4">AI Recruitment Dashboard</h1>
+        <p className="text-lg opacity-90">Streamline your hiring process with AI-powered candidate selection</p>
       </div>
 
-      <JobList jobs={jobs} applications={applications} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white shadow-xl rounded-xl p-6 border border-gray-100">
+          <div className="flex items-center space-x-4">
+            <JobUploader onUploadSuccess={fetchJobs} />
+            <button
+              onClick={startAISelection}
+              disabled={processing}
+              className={`flex items-center px-6 py-3 rounded-xl text-white transition-all duration-300 transform hover:scale-105 ${
+                processing 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-green-400 to-emerald-600 hover:from-green-500 hover:to-emerald-700'
+              }`}
+            >
+              {processing 
+                ? `Processing (${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')})` 
+                : 'Start AI Selection'}
+            </button>
+          </div>
+
+          <WorkflowStatus 
+            steps={workflowSteps} 
+            selectedCount={selectedCount}
+            invitationsSent={invitationsSent}
+          />
+        </div>
+
+        <div className="bg-white shadow-xl rounded-xl p-6 border border-gray-100">
+          <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center">
+            <Award className="w-6 h-6 mr-2 text-purple-500" />
+            Selected Candidates
+          </h2>
+          <div className="space-y-4">
+            {selectedCandidates.map((candidate) => (
+              <div
+                key={candidate.id}
+                className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg border border-purple-100"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-semibold text-purple-900">{candidate.username}</h3>
+                    <p className="text-sm text-gray-600">{candidate.jobTitle}</p>
+                    <div className="mt-2 flex items-center space-x-4 text-sm">
+                      <span className="flex items-center text-gray-500">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        {formatDate(candidate.selectedAt)}
+                      </span>
+                      <span className="flex items-center text-purple-600">
+                        <Star className="w-4 h-4 mr-1" />
+                        {formatMatchScore(candidate.matchScore)}
+                      </span>
+                      {candidate.invitationSent && (
+                        <span className="flex items-center text-green-600">
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          Invited
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {selectedCandidates.length === 0 && (
+              <p className="text-gray-500 italic text-center py-4">
+                No candidates selected yet
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white shadow-xl rounded-xl border border-gray-100">
+        <JobList jobs={jobs} applications={applications} />
+      </div>
     </div>
   );
 }

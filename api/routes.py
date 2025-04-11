@@ -77,10 +77,18 @@ def register_routes(app):
             conn = sqlite3.connect(Config.DATABASE_FILE)
             c = conn.cursor()
             
+            # First, clear existing selected candidates
+            c.execute('DELETE FROM selected_candidates')
+            
+            # Reset selection status in applications
+            c.execute('UPDATE applications SET selected = FALSE')
+            
+            # Get all jobs
             c.execute('SELECT id, threshold, max_candidates FROM jobs')
             jobs = c.fetchall()
             
             for job_id, threshold, max_candidates in jobs:
+                # Get applications for this job, sorted by match score
                 c.execute('''
                     SELECT id, username, match_score
                     FROM applications
@@ -92,11 +100,18 @@ def register_routes(app):
                 selected = c.fetchall()
                 
                 for app_id, username, score in selected:
+                    # Mark application as selected
                     c.execute('''
                         UPDATE applications
                         SET selected = TRUE
                         WHERE id = ?
                     ''', (app_id,))
+                    
+                    # Insert into selected_candidates table
+                    c.execute('''
+                        INSERT INTO selected_candidates (username, job_id, match_score)
+                        VALUES (?, ?, ?)
+                    ''', (username, job_id, score))
             
             conn.commit()
             conn.close()
@@ -252,6 +267,7 @@ def register_routes(app):
                     a.match_score, a.selected, a.invitation_sent
                 FROM applications a
                 JOIN jobs j ON a.job_id = j.id
+                ORDER BY a.match_score DESC
             ''')
             
             applications = c.fetchall()
@@ -341,4 +357,40 @@ def register_routes(app):
         except Exception as e:
             if 'conn' in locals():
                 conn.close()
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/selected-candidates', methods=['GET'])
+    def get_selected_candidates():
+        try:
+            conn = sqlite3.connect(Config.DATABASE_FILE)
+            c = conn.cursor()
+            
+            c.execute('''
+                SELECT 
+                    sc.id,
+                    sc.username,
+                    j.title as job_title,
+                    sc.match_score,
+                    sc.selected_at,
+                    a.invitation_sent
+                FROM selected_candidates sc
+                JOIN jobs j ON sc.job_id = j.id
+                JOIN applications a ON a.username = sc.username AND a.job_id = sc.job_id
+                ORDER BY sc.match_score DESC, sc.selected_at DESC
+            ''')
+            
+            candidates = c.fetchall()
+            conn.close()
+            
+            candidates_list = [{
+                'id': candidate[0],
+                'username': candidate[1],
+                'jobTitle': candidate[2],
+                'matchScore': candidate[3],
+                'selectedAt': candidate[4],
+                'invitationSent': candidate[5]
+            } for candidate in candidates]
+            
+            return jsonify(candidates_list)
+        except Exception as e:
             return jsonify({'error': str(e)}), 500
