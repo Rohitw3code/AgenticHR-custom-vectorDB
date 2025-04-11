@@ -1,28 +1,30 @@
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+import subprocess
+import sys
+import io
+# Ensure stdout supports UTF-8 (for emojis or symbols if needed)
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# Set your Groq API key
-groq_api_key = "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"  
 
-def job_summurizer(job_description):
-    # Initialize the Groq chat model
-    chat = ChatGroq(
-        api_key=groq_api_key,
-        model="llama3-70b-8192",  # Use a suitable Groq model
-        temperature=0.3,  # Control randomness
-        max_tokens=150  # Limit response length
-    )
+class MistralJobSummarizerCLI:
+    def __init__(self, model="mistral"):
+        self.model = model
 
-    # Define the prompt template
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful assistant that summarizes job descriptions."),
-        ("user", "Summarize the following job description into a concise paragraph that includes the job title, key responsibilities, and required qualifications:\n\n{description}")
-    ])
+    def summarize(self, job_description):
+        prompt = f"""Summarize the following description in 3-5 concise bullet points, focusing on key responsibilities, required skills, and experience:
+{job_description}
 
-    # Create a chain to process the input
-    chain = prompt | chat
+Summary:"""
+        # Run the Ollama model using subprocess
+        process = subprocess.run(
+            ["ollama", "run", self.model],
+            input=prompt.encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
 
-    # Generate and print the summary
-    summary = chain.invoke({"description": job_description})
-    print("Summary:")
-    return summary.content
+        if process.returncode != 0:
+            raise RuntimeError(f"Ollama error: {process.stderr.decode()}")
+
+        return process.stdout.decode().strip()
+    
+

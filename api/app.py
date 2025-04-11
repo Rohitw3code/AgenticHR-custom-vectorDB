@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 import io
 from langchain.document_loaders import PyMuPDFLoader 
-from utils import job_summurizer
+from utils import MistralJobSummarizerCLI
 
 app = Flask(__name__)
 CORS(app)
@@ -24,6 +24,9 @@ DATABASE_FILE = os.path.join(UPLOAD_FOLDER, 'applications.db')
 os.makedirs(JOBS_FOLDER, exist_ok=True)
 os.makedirs(RESUMES_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+ollama = MistralJobSummarizerCLI()
+
 
 # Initialize applications.json if it doesn't exist
 if not os.path.exists(APPLICATIONS_FILE):
@@ -85,10 +88,12 @@ def upload_jobs():
 
         # Insert new jobs
         for row in csv_reader:
+            jd_text = ollama.summarize(row['Job Description'])
             c.execute('''
                 INSERT INTO jobs (title, description)
                 VALUES (?, ?)
-            ''', (row['Job Title'], row['Job Description']))
+            ''', (row['Job Title'], jd_text))
+            
 
         conn.commit()
         conn.close()
@@ -198,7 +203,6 @@ def extract_pdf_data():
                 loader = PyMuPDFLoader(resume_path)
                 docs = loader.load()
                 resume_text = "\n".join([doc.page_content for doc in docs])
-                resume_text = job_summurizer(resume_text)
                 extracted_data.append({
                     'username': application['applicantName'],
                     'resume_text': resume_text,
@@ -225,13 +229,15 @@ def start_ai_selection():
         c = conn.cursor()
         
         for entry in data['extracted_data']:
+            resume_text = ollama.summarize(entry['resume_text'])
+            print("summarizing the resume....")
             c.execute('''
                 INSERT OR REPLACE INTO applications 
                 (username, resume_text, job_title, applied_at, extracted_data) 
                 VALUES (?, ?, ?, ?, ?)
             ''', (
                 entry['username'],
-                entry['resume_text'],
+                resume_text,
                 entry['job_title'],
                 entry['applied_at'],
                 json.dumps(entry)
