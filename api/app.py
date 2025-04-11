@@ -9,6 +9,8 @@ from datetime import datetime
 import io
 from langchain.document_loaders import PyMuPDFLoader 
 from utils import job_summurizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 CORS(app)
@@ -51,6 +53,7 @@ def init_db():
             job_id INTEGER NOT NULL,
             applied_at TEXT,
             extracted_data TEXT,
+            match_score REAL DEFAULT 0,
             FOREIGN KEY (job_id) REFERENCES jobs(id)
         )
     ''')
@@ -68,23 +71,58 @@ def init_db():
         )
     ''')
     
-    # Create job_matches table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS job_matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            job_id INTEGER NOT NULL,
-            match_score REAL NOT NULL,
-            matched_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (username) REFERENCES applications(username),
-            FOREIGN KEY (job_id) REFERENCES jobs(id)
-        )
-    ''')
-    
     conn.commit()
     conn.close()
 
 init_db()
+
+def compute_match_score(resume_text, job_description):
+    if not resume_text or not job_description:
+        return 0.0
+    
+    vectorizer = TfidfVectorizer(stop_words='english')
+    try:
+        tfidf = vectorizer.fit_transform([resume_text, job_description])
+        similarity = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+        return float(similarity)
+    except Exception as e:
+        print(f"Error computing match score: {e}")
+        return 0.0
+
+@app.route('/api/compute-matches', methods=['POST'])
+def compute_matches():
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Get all applications with their extracted data and job descriptions
+        c.execute('''
+            SELECT a.id, a.extracted_data, j.description
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.id
+            WHERE a.extracted_data IS NOT NULL
+        ''')
+        applications = c.fetchall()
+        
+        for app_id, extracted_data, job_description in applications:
+            match_score = compute_match_score(extracted_data, job_description)
+            
+            # Update the match score in the applications table
+            c.execute('''
+                UPDATE applications
+                SET match_score = ?
+                WHERE id = ?
+            ''', (match_score, app_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Match scores computed successfully'}), 200
+        
+    except Exception as e:
+        if conn:
+            conn.close()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/jobs/upload', methods=['POST'])
 def upload_jobs():
@@ -184,7 +222,7 @@ def get_applications():
         
         # Join applications with jobs to get job titles
         c.execute('''
-            SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id, a.extracted_data
+            SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id, a.extracted_data, a.match_score
             FROM applications a
             JOIN jobs j ON a.job_id = j.id
         ''')
@@ -199,7 +237,8 @@ def get_applications():
             'jobTitle': app[3],
             'appliedAt': app[4],
             'jobId': app[5],
-            'extractedData': app[6]
+            'extractedData': app[6],
+            'matchScore': app[7]
         } for app in applications]
         
         return jsonify(applications_list)

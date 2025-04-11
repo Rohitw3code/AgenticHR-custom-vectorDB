@@ -14,6 +14,7 @@ interface Application {
   applicantName: string;
   resumeFile: string;
   appliedAt: string;
+  matchScore: number;
 }
 
 interface WorkflowStep {
@@ -30,7 +31,7 @@ function AdminPage() {
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
     { title: 'Organizing Resumes', status: 'pending' },
     { title: 'Extracting Data', status: 'pending' },
-    { title: 'Storing in Database', status: 'pending' }
+    { title: 'Computing Match Scores', status: 'pending' }
   ]);
 
   useEffect(() => {
@@ -63,28 +64,26 @@ function AdminPage() {
 
       // Step 2: Extracting Data
       updateStepStatus(1, 'processing');
-      const response = await axios.post('http://localhost:5000/api/extract-pdf-data');
+      await axios.post('http://localhost:5000/api/extract-pdf-data');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(1, 'completed');
       
-      return response.data;
+      return true;
     } catch (error) {
       console.error('Error extracting PDF data:', error);
       throw error;
     }
   };
 
-  const saveToDatabase = async (extractedData: any) => {
+  const computeMatchScores = async () => {
     try {
-      // Step 3: Storing in Database
+      // Step 3: Computing Match Scores
       updateStepStatus(2, 'processing');
-      const response = await axios.post('http://localhost:5000/api/start-ai-selection', extractedData);
+      await axios.post('http://localhost:5000/api/compute-matches');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(2, 'completed');
-      
-      return response.data;
     } catch (error) {
-      console.error('Error saving to database:', error);
+      console.error('Error computing match scores:', error);
       throw error;
     }
   };
@@ -114,9 +113,9 @@ function AdminPage() {
     setWorkflowSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));
     
     try {
-      const extractedData = await extractDataFromPDF();
-      await saveToDatabase(extractedData);
-      fetchApplications(); // Refresh the applications list
+      await extractDataFromPDF();
+      await computeMatchScores();
+      await fetchApplications(); // Refresh the applications list
     } catch (error) {
       console.error('Error during AI selection process:', error);
       setWorkflowSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));

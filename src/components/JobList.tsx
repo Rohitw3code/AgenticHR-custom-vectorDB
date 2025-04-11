@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Star } from 'lucide-react';
 
 interface Job {
   id: number;
@@ -14,6 +14,7 @@ interface Application {
   applicantName: string;
   resumeFile: string;
   appliedAt: string;
+  matchScore: number;
 }
 
 interface JobListProps {
@@ -39,6 +40,17 @@ function JobList({ jobs, applications }: JobListProps) {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const getMatchScoreColor = (score: number) => {
+    if (score >= 0.8) return 'text-green-600';
+    if (score >= 0.6) return 'text-blue-600';
+    if (score >= 0.4) return 'text-yellow-600';
+    return 'text-gray-600';
+  };
+
+  const formatMatchScore = (score: number) => {
+    return `${(score * 100).toFixed(1)}%`;
   };
 
   return (
@@ -71,6 +83,7 @@ function JobList({ jobs, applications }: JobListProps) {
               <div className="space-y-4">
                 {applications
                   .filter(app => app.jobId === job.id)
+                  .sort((a, b) => b.matchScore - a.matchScore)
                   .map((application) => (
                     <div
                       key={application.id}
@@ -87,6 +100,12 @@ function JobList({ jobs, applications }: JobListProps) {
                           <FileText className="w-4 h-4 mr-2" />
                           {application.resumeFile}
                         </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Star className={`w-5 h-5 ${getMatchScoreColor(application.matchScore)}`} />
+                        <span className={`font-medium ${getMatchScoreColor(application.matchScore)}`}>
+                          {formatMatchScore(application.matchScore)}
+                        </span>
                       </div>
                     </div>
                   ))}
