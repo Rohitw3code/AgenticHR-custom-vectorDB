@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 import io
 from langchain.document_loaders import PyMuPDFLoader 
-
+from utils import job_summurizer
 
 app = Flask(__name__)
 CORS(app)
@@ -66,37 +66,37 @@ def upload_jobs():
 
     if file and file.filename.endswith('.csv'):
         try:
-            # Attempt to decode with utf-8, fallback to cp1252 if it fails
-            try:
-                csv_content = file.read().decode('utf-8')
-            except UnicodeDecodeError:
-                file.seek(0)
-                csv_content = file.read().decode('cp1252')  # fallback encoding
+            # # Attempt to decode with utf-8, fallback to cp1252 if it fails
+            # try:
+            csv_content = file.read().decode('utf-8')
+        except UnicodeDecodeError:
+            file.seek(0)
+            csv_content = file.read().decode('cp1252')  # fallback encoding
 
-            csv_file = io.StringIO(csv_content)
-            csv_reader = csv.DictReader(csv_file)
+        csv_file = io.StringIO(csv_content)
+        csv_reader = csv.DictReader(csv_file)
 
-            # Connect to SQLite
-            conn = sqlite3.connect(DATABASE_FILE)
-            c = conn.cursor()
+        # Connect to SQLite
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
 
-            # Clear existing jobs
-            c.execute('DELETE FROM jobs')
+        # Clear existing jobs
+        c.execute('DELETE FROM jobs')
 
-            # Insert new jobs
-            for row in csv_reader:
-                c.execute('''
-                    INSERT INTO jobs (title, description)
-                    VALUES (?, ?)
-                ''', (row['Job Title'], row['Job Description']))
+        # Insert new jobs
+        for row in csv_reader:
+            c.execute('''
+                INSERT INTO jobs (title, description)
+                VALUES (?, ?)
+            ''', (row['Job Title'], row['Job Description']))
 
-            conn.commit()
-            conn.close()
+        conn.commit()
+        conn.close()
 
-            return jsonify({'message': 'Jobs uploaded successfully'}), 200
+        return jsonify({'message': 'Jobs uploaded successfully'}), 200
 
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+        # except Exception as e:
+        #     return jsonify({'error': str(e)}), 500
 
     return jsonify({'error': 'Invalid file type'}), 400
 
@@ -198,7 +198,7 @@ def extract_pdf_data():
                 loader = PyMuPDFLoader(resume_path)
                 docs = loader.load()
                 resume_text = "\n".join([doc.page_content for doc in docs])
-
+                resume_text = job_summurizer(resume_text)
                 extracted_data.append({
                     'username': application['applicantName'],
                     'resume_text': resume_text,
