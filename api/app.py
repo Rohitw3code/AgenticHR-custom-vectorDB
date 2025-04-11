@@ -10,7 +10,6 @@ import io
 from langchain.document_loaders import PyMuPDFLoader 
 from utils import job_summurizer
 
-
 app = Flask(__name__)
 CORS(app)
 
@@ -21,31 +20,19 @@ RESUMES_FOLDER = os.path.join(UPLOAD_FOLDER, 'resumes')
 APPLICATIONS_FILE = os.path.join(UPLOAD_FOLDER, 'applications.json')
 DATABASE_FILE = os.path.join(UPLOAD_FOLDER, 'applications.db')
 
-# Create upload folders if they don't exist
 os.makedirs(JOBS_FOLDER, exist_ok=True)
 os.makedirs(RESUMES_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize applications.json if it doesn't exist
 if not os.path.exists(APPLICATIONS_FILE):
     with open(APPLICATIONS_FILE, 'w') as f:
         json.dump([], f)
 
-
-
-
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
     c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS applications (
-            username TEXT PRIMARY KEY,
-            resume_text TEXT,
-            job_title TEXT,
-            applied_at TEXT,
-            extracted_data TEXT
-        )
-    ''')
+    
+    # Create jobs table with auto-incrementing ID
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +41,46 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Create applications table with job_id foreign key
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            resume_text TEXT,
+            job_id INTEGER NOT NULL,
+            applied_at TEXT,
+            extracted_data TEXT,
+            FOREIGN KEY (job_id) REFERENCES jobs(id)
+        )
+    ''')
+    
+    # Create selected_candidates table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS selected_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            job_id INTEGER NOT NULL,
+            match_score REAL NOT NULL,
+            selected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (username) REFERENCES applications(username),
+            FOREIGN KEY (job_id) REFERENCES jobs(id)
+        )
+    ''')
+    
+    # Create job_matches table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS job_matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            job_id INTEGER NOT NULL,
+            match_score REAL NOT NULL,
+            matched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (username) REFERENCES applications(username),
+            FOREIGN KEY (job_id) REFERENCES jobs(id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -70,17 +97,15 @@ def upload_jobs():
 
     if file and file.filename.endswith('.csv'):
         try:
-            # Attempt to decode with utf-8, fallback to cp1252 if it fails
             try:
                 csv_content = file.read().decode('utf-8')
             except UnicodeDecodeError:
                 file.seek(0)
-                csv_content = file.read().decode('cp1252')  # fallback encoding
+                csv_content = file.read().decode('cp1252')
 
             csv_file = io.StringIO(csv_content)
             csv_reader = csv.DictReader(csv_file)
 
-            # Connect to SQLite
             conn = sqlite3.connect(DATABASE_FILE)
             c = conn.cursor()
 
@@ -109,12 +134,11 @@ def get_jobs():
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
-        c.execute('SELECT title, description FROM jobs')
+        c.execute('SELECT id, title, description FROM jobs')
         jobs = c.fetchall()
         conn.close()
         
-        # Convert to list of dictionaries
-        jobs_list = [{'Job Title': job[0], 'Job Description': job[1]} for job in jobs]
+        jobs_list = [{'id': job[0], 'Job Title': job[1], 'Job Description': job[2]} for job in jobs]
         return jsonify(jobs_list)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -122,33 +146,31 @@ def get_jobs():
 @app.route('/api/apply', methods=['POST'])
 def apply_job():
     data = request.json
-    if not data or 'jobTitle' not in data or 'applicantName' not in data or 'resumeFile' not in data:
+    if not data or 'jobId' not in data or 'applicantName' not in data or 'resumeFile' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
 
     try:
-        # Ensure applications.json exists and is valid
-        if not os.path.exists(APPLICATIONS_FILE):
-            with open(APPLICATIONS_FILE, 'w') as f:
-                json.dump([], f)
-
-        # Read existing applications
-        try:
-            with open(APPLICATIONS_FILE, 'r') as f:
-                applications = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            applications = []
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
         
-        # Add new application
-        applications.append({
-            'jobTitle': data['jobTitle'],
-            'applicantName': data['applicantName'],
-            'resumeFile': data['resumeFile'],
-            'appliedAt': datetime.now().isoformat()
-        })
+        # Verify job exists
+        c.execute('SELECT id FROM jobs WHERE id = ?', (data['jobId'],))
+        if not c.fetchone():
+            return jsonify({'error': 'Invalid job ID'}), 400
         
-        # Write back to file
-        with open(APPLICATIONS_FILE, 'w') as f:
-            json.dump(applications, f)
+        # Insert application with job_id
+        c.execute('''
+            INSERT INTO applications (username, job_id, applied_at, resume_text)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            data['applicantName'],
+            data['jobId'],
+            datetime.now().isoformat(),
+            data['resumeFile']
+        ))
+        
+        conn.commit()
+        conn.close()
         
         return jsonify({'message': 'Application submitted successfully'}), 200
     except Exception as e:
@@ -157,12 +179,30 @@ def apply_job():
 @app.route('/api/applications', methods=['GET'])
 def get_applications():
     try:
-        if not os.path.exists(APPLICATIONS_FILE):
-            return jsonify([])
-            
-        with open(APPLICATIONS_FILE, 'r') as f:
-            applications = json.load(f)
-        return jsonify(applications)
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Join applications with jobs to get job titles
+        c.execute('''
+            SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id, a.extracted_data
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.id
+        ''')
+        
+        applications = c.fetchall()
+        conn.close()
+        
+        applications_list = [{
+            'id': app[0],
+            'applicantName': app[1],
+            'resumeFile': app[2],
+            'jobTitle': app[3],
+            'appliedAt': app[4],
+            'jobId': app[5],
+            'extractedData': app[6]
+        } for app in applications]
+        
+        return jsonify(applications_list)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -186,70 +226,56 @@ def upload_resume():
 @app.route('/api/extract-pdf-data', methods=['POST'])
 def extract_pdf_data():
     try:
-        if not os.path.exists(APPLICATIONS_FILE):
-            return jsonify({'extracted_data': []})
-
-        with open(APPLICATIONS_FILE, 'r') as f:
-            applications = json.load(f)
-
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Get all applications that haven't had their PDFs extracted yet
+        c.execute('''
+            SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.id
+            WHERE a.extracted_data IS NULL
+        ''')
+        applications = c.fetchall()
+        
         extracted_data = []
-
-        for application in applications:
-            resume_path = os.path.join(RESUMES_FOLDER, application['resumeFile'])
-
+        
+        for app in applications:
+            app_id, username, resume_filename, job_title, applied_at, job_id = app
+            resume_path = os.path.join(RESUMES_FOLDER, resume_filename)
+            
             if os.path.exists(resume_path):
                 # Use LangChain to load and extract text
                 loader = PyMuPDFLoader(resume_path)
                 docs = loader.load()
                 resume_text = "\n".join([doc.page_content for doc in docs])
-
+                
+                # Store the extracted text in the database
+                c.execute('''
+                    UPDATE applications 
+                    SET extracted_data = ? 
+                    WHERE id = ?
+                ''', (resume_text, app_id))
+                
                 extracted_data.append({
-                    'username': application['applicantName'],
+                    'username': username,
                     'resume_text': resume_text,
-                    'job_title': application['jobTitle'],
-                    'applied_at': application['appliedAt']
+                    'job_title': job_title,
+                    'applied_at': applied_at,
+                    'job_id': job_id
                 })
-
-        return jsonify({
-            'message': 'PDF data extracted successfully',
-            'extracted_data': extracted_data
-        }), 200
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/start-ai-selection', methods=['POST'])
-def start_ai_selection():
-    try:
-        data = request.json
-        if not data or 'extracted_data' not in data:
-            return jsonify({'error': 'No extracted data provided'}), 400
-            
-        conn = sqlite3.connect(DATABASE_FILE)
-        c = conn.cursor()
-        
-        for entry in data['extracted_data']:
-            c.execute('''
-                INSERT OR REPLACE INTO applications 
-                (username, resume_text, job_title, applied_at, extracted_data) 
-                VALUES (?, ?, ?, ?, ?)
-            ''', (
-                entry['username'],
-                entry['resume_text'],
-                entry['job_title'],
-                entry['applied_at'],
-                json.dumps(entry)
-            ))
         
         conn.commit()
         conn.close()
         
         return jsonify({
-            'message': 'AI selection completed',
-            'processed': len(data['extracted_data'])
+            'message': 'PDF data extracted successfully',
+            'extracted_data': extracted_data
         }), 200
         
     except Exception as e:
+        if conn:
+            conn.close()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

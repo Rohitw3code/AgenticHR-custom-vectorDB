@@ -3,6 +3,7 @@ import { Upload, ChevronDown, ChevronUp, Briefcase, FileText, Clock } from 'luci
 import axios from 'axios';
 
 interface Job {
+  id: number;
   'Job Title': string;
   'Job Description': string;
 }
@@ -10,7 +11,7 @@ interface Job {
 function UserPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [expandedJobs, setExpandedJobs] = useState<{ [key: string]: boolean }>({});
+  const [expandedJobs, setExpandedJobs] = useState<{ [key: number]: boolean }>({});
   const [applicantName, setApplicantName] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,10 +29,10 @@ function UserPage() {
     }
   };
 
-  const toggleJobExpansion = (jobTitle: string) => {
+  const toggleJobExpansion = (jobId: number) => {
     setExpandedJobs(prev => ({
       ...prev,
-      [jobTitle]: !prev[jobTitle]
+      [jobId]: !prev[jobId]
     }));
   };
 
@@ -61,7 +62,7 @@ function UserPage() {
     }
   };
 
-  const handleApply = async (jobTitle: string) => {
+  const handleApply = async (jobId: number) => {
     if (!applicantName.trim()) {
       alert('Please enter your name');
       return;
@@ -73,7 +74,7 @@ function UserPage() {
 
     try {
       await axios.post('http://localhost:5000/api/apply', {
-        jobTitle,
+        jobId,
         applicantName,
         resumeFile: uploadedFileName
       });
@@ -95,7 +96,6 @@ function UserPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {/* Profile Section */}
         <div className="bg-white rounded-2xl shadow-xl p-8 mb-8 backdrop-blur-lg bg-opacity-90">
           <h2 className="text-3xl font-bold text-indigo-900 mb-6">Your Profile</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -132,7 +132,6 @@ function UserPage() {
           </div>
         </div>
 
-        {/* Search Section */}
         <div className="mb-8">
           <div className="relative">
             <input
@@ -148,21 +147,20 @@ function UserPage() {
           </div>
         </div>
 
-        {/* Jobs List */}
         <div className="space-y-6">
-          {filteredJobs.map((job, index) => (
+          {filteredJobs.map((job) => (
             <div
-              key={index}
+              key={job.id}
               className="bg-white rounded-2xl shadow-lg overflow-hidden transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1"
             >
               <div className="p-6">
                 <div className="flex justify-between items-start">
                   <h3 className="text-2xl font-bold text-indigo-900">{job['Job Title']}</h3>
                   <button
-                    onClick={() => toggleJobExpansion(job['Job Title'])}
+                    onClick={() => toggleJobExpansion(job.id)}
                     className="text-indigo-600 hover:text-indigo-800 transition-colors"
                   >
-                    {expandedJobs[job['Job Title']] ? (
+                    {expandedJobs[job.id] ? (
                       <ChevronUp className="w-6 h-6" />
                     ) : (
                       <ChevronDown className="w-6 h-6" />
@@ -181,7 +179,7 @@ function UserPage() {
                   </div>
                 </div>
 
-                {expandedJobs[job['Job Title']] && (
+                {expandedJobs[job.id] && (
                   <div className="mt-6">
                     <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
                       {job['Job Description']}
@@ -191,7 +189,7 @@ function UserPage() {
 
                 <div className="mt-6">
                   <button
-                    onClick={() => handleApply(job['Job Title'])}
+                    onClick={() => handleApply(job.id)}
                     className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                   >
                     Apply Now
