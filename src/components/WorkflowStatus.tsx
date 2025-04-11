@@ -1,24 +1,27 @@
 import React from 'react';
-import { Timer, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Timer, CheckCircle2, ArrowRight, Mail, FileText, Brain, Star, UserCheck } from 'lucide-react';
 
 interface WorkflowStep {
   title: string;
   status: 'pending' | 'processing' | 'completed';
+  icon: React.ReactNode;
 }
 
 interface WorkflowStatusProps {
   steps: WorkflowStep[];
+  selectedCount?: number;
+  invitationsSent?: number;
 }
 
-function WorkflowStatus({ steps }: WorkflowStatusProps) {
-  const getStepIcon = (status: string) => {
+function WorkflowStatus({ steps, selectedCount = 0, invitationsSent = 0 }: WorkflowStatusProps) {
+  const getStepIcon = (status: string, icon: React.ReactNode) => {
     switch (status) {
       case 'processing':
-        return <Timer className="w-6 h-6 animate-spin text-blue-500" />;
+        return <div className="animate-spin">{icon}</div>;
       case 'completed':
         return <CheckCircle2 className="w-6 h-6 text-green-500" />;
       default:
-        return <div className="w-6 h-6 rounded-full border-2 border-gray-300" />;
+        return <div className="text-gray-400">{icon}</div>;
     }
   };
 
@@ -29,7 +32,9 @@ function WorkflowStatus({ steps }: WorkflowStatusProps) {
         {steps.map((step, index) => (
           <div key={index} className="flex items-center">
             <div className="flex items-center w-64">
-              {getStepIcon(step.status)}
+              <div className="w-8 h-8 flex items-center justify-center">
+                {getStepIcon(step.status, step.icon)}
+              </div>
               <span className={`ml-3 ${
                 step.status === 'processing' ? 'text-blue-600 font-medium' :
                 step.status === 'completed' ? 'text-green-600 font-medium' :
@@ -46,6 +51,21 @@ function WorkflowStatus({ steps }: WorkflowStatusProps) {
           </div>
         ))}
       </div>
+
+      {(selectedCount > 0 || invitationsSent > 0) && (
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="space-y-2">
+            <div className="flex items-center text-sm">
+              <UserCheck className="w-5 h-5 mr-2 text-blue-500" />
+              <span>Selected Candidates: {selectedCount}</span>
+            </div>
+            <div className="flex items-center text-sm">
+              <Mail className="w-5 h-5 mr-2 text-green-500" />
+              <span>Invitations Sent: {invitationsSent}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

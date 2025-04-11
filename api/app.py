@@ -40,7 +40,10 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             description TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            threshold REAL DEFAULT 0.6,
+            max_candidates INTEGER DEFAULT 5,
+            summary TEXT
         )
     ''')
     
@@ -54,6 +57,8 @@ def init_db():
             applied_at TEXT,
             extracted_data TEXT,
             match_score REAL DEFAULT 0,
+            selected BOOLEAN DEFAULT FALSE,
+            invitation_sent BOOLEAN DEFAULT FALSE,
             FOREIGN KEY (job_id) REFERENCES jobs(id)
         )
     ''')
@@ -88,6 +93,139 @@ def compute_match_score(resume_text, job_description):
     except Exception as e:
         print(f"Error computing match score: {e}")
         return 0.0
+
+@app.route('/api/apply', methods=['POST'])
+def apply_job():
+    data = request.json
+    if not data or 'jobId' not in data or 'applicantName' not in data or 'resumeFile' not in data:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Check if job exists
+        c.execute('SELECT id FROM jobs WHERE id = ?', (data['jobId'],))
+        job = c.fetchone()
+        if not job:
+            conn.close()
+            return jsonify({'error': 'Job not found'}), 404
+        
+        # Insert new application
+        c.execute('''
+            INSERT INTO applications (
+                username,
+                resume_text,
+                job_id,
+                applied_at
+            ) VALUES (?, ?, ?, ?)
+        ''', (
+            data['applicantName'],
+            data['resumeFile'],
+            data['jobId'],
+            datetime.now().isoformat()
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Application submitted successfully'}), 200
+    except Exception as e:
+        if conn:
+            conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/summarize-job', methods=['POST'])
+def summarize_job():
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Get jobs without summaries
+        c.execute('SELECT id, description FROM jobs WHERE summary IS NULL')
+        jobs = c.fetchall()
+        
+        for job_id, description in jobs:
+            summary = job_summurizer(description)
+            c.execute('UPDATE jobs SET summary = ? WHERE id = ?', (summary, job_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Jobs summarized successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/select-candidates', methods=['POST'])
+def select_candidates():
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Get all jobs
+        c.execute('SELECT id, threshold, max_candidates FROM jobs')
+        jobs = c.fetchall()
+        
+        for job_id, threshold, max_candidates in jobs:
+            # Get top candidates for each job
+            c.execute('''
+                SELECT id, username, match_score
+                FROM applications
+                WHERE job_id = ? AND match_score >= ?
+                ORDER BY match_score DESC
+                LIMIT ?
+            ''', (job_id, threshold, max_candidates))
+            
+            selected = c.fetchall()
+            
+            # Mark selected candidates
+            for app_id, username, score in selected:
+                c.execute('''
+                    UPDATE applications
+                    SET selected = TRUE
+                    WHERE id = ?
+                ''', (app_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Candidates selected successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/send-invitations', methods=['POST'])
+def send_invitations():
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        
+        # Get selected candidates who haven't received invitations
+        c.execute('''
+            SELECT a.id, a.username, j.title
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.id
+            WHERE a.selected = TRUE AND a.invitation_sent = FALSE
+        ''')
+        
+        candidates = c.fetchall()
+        
+        for app_id, username, job_title in candidates:
+            # In a real application, send actual email here
+            print(f"Sending invitation to {username} for {job_title}")
+            
+            # Mark invitation as sent
+            c.execute('''
+                UPDATE applications
+                SET invitation_sent = TRUE
+                WHERE id = ?
+            ''', (app_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'message': 'Invitations sent successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/compute-matches', methods=['POST'])
 def compute_matches():
@@ -153,9 +291,14 @@ def upload_jobs():
             # Insert new jobs
             for row in csv_reader:
                 c.execute('''
-                    INSERT INTO jobs (title, description)
-                    VALUES (?, ?)
-                ''', (row['Job Title'], row['Job Description']))
+                    INSERT INTO jobs (title, description, threshold, max_candidates)
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    row['Job Title'],
+                    row['Job Description'],
+                    float(row.get('Threshold', 0.6)),
+                    int(row.get('Max Candidates', 5))
+                ))
 
             conn.commit()
             conn.close()
@@ -172,45 +315,22 @@ def get_jobs():
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         c = conn.cursor()
-        c.execute('SELECT id, title, description FROM jobs')
+        c.execute('''
+            SELECT id, title, description, threshold, max_candidates, summary
+            FROM jobs
+        ''')
         jobs = c.fetchall()
         conn.close()
         
-        jobs_list = [{'id': job[0], 'Job Title': job[1], 'Job Description': job[2]} for job in jobs]
+        jobs_list = [{
+            'id': job[0],
+            'Job Title': job[1],
+            'Job Description': job[2],
+            'threshold': job[3],
+            'maxCandidates': job[4],
+            'summary': job[5]
+        } for job in jobs]
         return jsonify(jobs_list)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/apply', methods=['POST'])
-def apply_job():
-    data = request.json
-    if not data or 'jobId' not in data or 'applicantName' not in data or 'resumeFile' not in data:
-        return jsonify({'error': 'Missing required fields'}), 400
-
-    try:
-        conn = sqlite3.connect(DATABASE_FILE)
-        c = conn.cursor()
-        
-        # Verify job exists
-        c.execute('SELECT id FROM jobs WHERE id = ?', (data['jobId'],))
-        if not c.fetchone():
-            return jsonify({'error': 'Invalid job ID'}), 400
-        
-        # Insert application with job_id
-        c.execute('''
-            INSERT INTO applications (username, job_id, applied_at, resume_text)
-            VALUES (?, ?, ?, ?)
-        ''', (
-            data['applicantName'],
-            data['jobId'],
-            datetime.now().isoformat(),
-            data['resumeFile']
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'message': 'Application submitted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -222,7 +342,10 @@ def get_applications():
         
         # Join applications with jobs to get job titles
         c.execute('''
-            SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id, a.extracted_data, a.match_score
+            SELECT 
+                a.id, a.username, a.resume_text, j.title, 
+                a.applied_at, a.job_id, a.extracted_data, 
+                a.match_score, a.selected, a.invitation_sent
             FROM applications a
             JOIN jobs j ON a.job_id = j.id
         ''')
@@ -238,7 +361,9 @@ def get_applications():
             'appliedAt': app[4],
             'jobId': app[5],
             'extractedData': app[6],
-            'matchScore': app[7]
+            'matchScore': app[7],
+            'selected': app[8],
+            'invitationSent': app[9]
         } for app in applications]
         
         return jsonify(applications_list)

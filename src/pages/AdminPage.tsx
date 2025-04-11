@@ -3,23 +3,32 @@ import axios from 'axios';
 import JobUploader from '../components/JobUploader';
 import WorkflowStatus from '../components/WorkflowStatus';
 import JobList from '../components/JobList';
+import { FileText, Brain, Star, Mail, UserCheck } from 'lucide-react';
 
 interface Job {
+  id: number;
   'Job Title': string;
   'Job Description': string;
+  threshold: number;
+  maxCandidates: number;
+  summary?: string;
 }
 
 interface Application {
+  id: number;
   jobTitle: string;
   applicantName: string;
   resumeFile: string;
   appliedAt: string;
   matchScore: number;
+  selected: boolean;
+  invitationSent: boolean;
 }
 
 interface WorkflowStep {
   title: string;
   status: 'pending' | 'processing' | 'completed';
+  icon: React.ReactNode;
 }
 
 function AdminPage() {
@@ -28,10 +37,14 @@ function AdminPage() {
   const [processing, setProcessing] = useState(false);
   const [timer, setTimer] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [selectedCount, setSelectedCount] = useState(0);
+  const [invitationsSent, setInvitationsSent] = useState(0);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
-    { title: 'Organizing Resumes', status: 'pending' },
-    { title: 'Extracting Data', status: 'pending' },
-    { title: 'Computing Match Scores', status: 'pending' }
+    { title: 'Extracting Resumes', status: 'pending', icon: <FileText className="w-6 h-6" /> },
+    { title: 'Summarizing Jobs', status: 'pending', icon: <Brain className="w-6 h-6" /> },
+    { title: 'Computing Match Scores', status: 'pending', icon: <Star className="w-6 h-6" /> },
+    { title: 'Selecting Candidates', status: 'pending', icon: <UserCheck className="w-6 h-6" /> },
+    { title: 'Sending Invitations', status: 'pending', icon: <Mail className="w-6 h-6" /> }
   ]);
 
   useEffect(() => {
@@ -49,6 +62,13 @@ function AdminPage() {
     return () => clearInterval(interval);
   }, [timerActive]);
 
+  useEffect(() => {
+    const selected = applications.filter(app => app.selected).length;
+    const invited = applications.filter(app => app.invitationSent).length;
+    setSelectedCount(selected);
+    setInvitationsSent(invited);
+  }, [applications]);
+
   const updateStepStatus = (stepIndex: number, status: 'pending' | 'processing' | 'completed') => {
     setWorkflowSteps(steps => steps.map((step, index) => 
       index === stepIndex ? { ...step, status } : step
@@ -57,17 +77,10 @@ function AdminPage() {
 
   const extractDataFromPDF = async () => {
     try {
-      // Step 1: Organizing Resumes
       updateStepStatus(0, 'processing');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(0, 'completed');
-
-      // Step 2: Extracting Data
-      updateStepStatus(1, 'processing');
       await axios.post('http://localhost:5000/api/extract-pdf-data');
       await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(1, 'completed');
-      
+      updateStepStatus(0, 'completed');
       return true;
     } catch (error) {
       console.error('Error extracting PDF data:', error);
@@ -75,15 +88,50 @@ function AdminPage() {
     }
   };
 
+  const summarizeJobs = async () => {
+    try {
+      updateStepStatus(1, 'processing');
+      await axios.post('http://localhost:5000/api/summarize-job');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(1, 'completed');
+    } catch (error) {
+      console.error('Error summarizing jobs:', error);
+      throw error;
+    }
+  };
+
   const computeMatchScores = async () => {
     try {
-      // Step 3: Computing Match Scores
       updateStepStatus(2, 'processing');
       await axios.post('http://localhost:5000/api/compute-matches');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(2, 'completed');
     } catch (error) {
       console.error('Error computing match scores:', error);
+      throw error;
+    }
+  };
+
+  const selectCandidates = async () => {
+    try {
+      updateStepStatus(3, 'processing');
+      await axios.post('http://localhost:5000/api/select-candidates');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(3, 'completed');
+    } catch (error) {
+      console.error('Error selecting candidates:', error);
+      throw error;
+    }
+  };
+
+  const sendInvitations = async () => {
+    try {
+      updateStepStatus(4, 'processing');
+      await axios.post('http://localhost:5000/api/send-invitations');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(4, 'completed');
+    } catch (error) {
+      console.error('Error sending invitations:', error);
       throw error;
     }
   };
@@ -114,8 +162,11 @@ function AdminPage() {
     
     try {
       await extractDataFromPDF();
+      await summarizeJobs();
       await computeMatchScores();
-      await fetchApplications(); // Refresh the applications list
+      await selectCandidates();
+      await sendInvitations();
+      await fetchApplications();
     } catch (error) {
       console.error('Error during AI selection process:', error);
       setWorkflowSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));
@@ -141,7 +192,11 @@ function AdminPage() {
           </button>
         </div>
 
-        {processing && <WorkflowStatus steps={workflowSteps} />}
+        <WorkflowStatus 
+          steps={workflowSteps} 
+          selectedCount={selectedCount}
+          invitationsSent={invitationsSent}
+        />
       </div>
 
       <JobList jobs={jobs} applications={applications} />
