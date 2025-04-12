@@ -13,7 +13,7 @@ def register_routes(app):
     @app.route('/api/apply', methods=['POST'])
     def apply_job():
         data = request.json
-        if not data or 'jobId' not in data or 'applicantName' not in data or 'resumeFile' not in data:
+        if not data or 'jobId' not in data or 'applicantName' not in data or 'email' not in data or 'resumeFile' not in data:
             return jsonify({'error': 'Missing required fields'}), 400
 
         try:
@@ -31,12 +31,14 @@ def register_routes(app):
             c.execute('''
                 INSERT INTO applications (
                     username,
+                    email,
                     resume_text,
                     job_id,
                     applied_at
-                ) VALUES (?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?)
             ''', (
                 data['applicantName'],
+                data['email'],
                 data['resumeFile'],
                 data['jobId'],
                 datetime.now().isoformat()

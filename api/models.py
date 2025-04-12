@@ -18,11 +18,12 @@ def init_db():
         )
     ''')
     
-    # Create applications table
+    # Create applications table with email field
     c.execute('''
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
+            email TEXT NOT NULL,
             resume_text TEXT,
             job_id INTEGER NOT NULL,
             applied_at TEXT,
