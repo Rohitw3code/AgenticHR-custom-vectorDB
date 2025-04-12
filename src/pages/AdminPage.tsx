@@ -61,6 +61,10 @@ function AdminPage() {
     fetchJobs();
     fetchApplications();
     fetchSelectedCandidates();
+
+    // Auto-refresh selected candidates every 30 seconds
+    const interval = setInterval(fetchSelectedCandidates, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -129,6 +133,7 @@ function AdminPage() {
       await axios.post('http://localhost:5000/api/select-candidates');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(3, 'completed');
+      await fetchSelectedCandidates(); // Refresh selected candidates after selection
     } catch (error) {
       console.error('Error selecting candidates:', error);
       throw error;
@@ -141,6 +146,7 @@ function AdminPage() {
       await axios.post('http://localhost:5000/api/send-invitations');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(4, 'completed');
+      await fetchSelectedCandidates(); // Refresh selected candidates after sending invitations
     } catch (error) {
       console.error('Error sending invitations:', error);
       throw error;
@@ -218,7 +224,7 @@ function AdminPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white shadow-xl rounded-xl p-6 border border-gray-100">
+        <div className="bg-black/20 backdrop-blur-xl shadow-2xl rounded-xl p-6 border border-purple-500/20">
           <div className="flex items-center space-x-4">
             <JobUploader onUploadSuccess={fetchJobs} />
             <button
@@ -226,8 +232,8 @@ function AdminPage() {
               disabled={processing}
               className={`flex items-center px-6 py-3 rounded-xl text-white transition-all duration-300 transform hover:scale-105 ${
                 processing 
-                  ? 'bg-gray-400 cursor-not-allowed' 
-                  : 'bg-gradient-to-r from-green-400 to-emerald-600 hover:from-green-500 hover:to-emerald-700'
+                  ? 'bg-gray-600 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-lg hover:shadow-purple-500/25'
               }`}
             >
               {processing 
@@ -243,32 +249,32 @@ function AdminPage() {
           />
         </div>
 
-        <div className="bg-white shadow-xl rounded-xl p-6 border border-gray-100">
-          <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center">
-            <Award className="w-6 h-6 mr-2 text-purple-500" />
+        <div className="bg-black/20 backdrop-blur-xl shadow-2xl rounded-xl p-6 border border-purple-500/20">
+          <h2 className="text-2xl font-bold mb-6 text-purple-300 flex items-center">
+            <Award className="w-6 h-6 mr-2 text-purple-400" />
             Selected Candidates
           </h2>
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
             {selectedCandidates.map((candidate) => (
               <div
                 key={candidate.id}
-                className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg border border-purple-100"
+                className="bg-purple-900/20 p-4 rounded-lg border border-purple-500/20 hover:border-purple-500/40 transition-all duration-300"
               >
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="font-semibold text-purple-900">{candidate.username}</h3>
-                    <p className="text-sm text-gray-600">{candidate.jobTitle}</p>
+                    <h3 className="font-semibold text-purple-300">{candidate.username}</h3>
+                    <p className="text-sm text-gray-400">{candidate.jobTitle}</p>
                     <div className="mt-2 flex items-center space-x-4 text-sm">
-                      <span className="flex items-center text-gray-500">
+                      <span className="flex items-center text-gray-400">
                         <Calendar className="w-4 h-4 mr-1" />
                         {formatDate(candidate.selectedAt)}
                       </span>
-                      <span className="flex items-center text-purple-600">
+                      <span className="flex items-center text-purple-400">
                         <Star className="w-4 h-4 mr-1" />
                         {formatMatchScore(candidate.matchScore)}
                       </span>
                       {candidate.invitationSent && (
-                        <span className="flex items-center text-green-600">
+                        <span className="flex items-center text-green-400">
                           <CheckCircle className="w-4 h-4 mr-1" />
                           Invited
                         </span>
@@ -279,7 +285,7 @@ function AdminPage() {
               </div>
             ))}
             {selectedCandidates.length === 0 && (
-              <p className="text-gray-500 italic text-center py-4">
+              <p className="text-gray-400 italic text-center py-4">
                 No candidates selected yet
               </p>
             )}
@@ -287,7 +293,7 @@ function AdminPage() {
         </div>
       </div>
 
-      <div className="bg-white shadow-xl rounded-xl border border-gray-100">
+      <div className="bg-black/20 backdrop-blur-xl shadow-2xl rounded-xl border border-purple-500/20">
         <JobList jobs={jobs} applications={applications} />
       </div>
     </div>
