@@ -62,7 +62,7 @@ def register_routes(app):
                     ''', (
                         row['Job Title'],
                         row['Job Description'],
-                        float(row.get('Threshold', 0.1)),
+                        float(row.get('Threshold', 10)),
                         int(row.get('Max Candidates', 5))
                     ))
 
