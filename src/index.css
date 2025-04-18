@@ -43,6 +43,19 @@
   animation: bounce 0.5s ease-in-out;
 }
 
+@keyframes progress-pulse {
+  0% {
+    stroke-dashoffset: 20;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.progress-line {
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 8px;
 }

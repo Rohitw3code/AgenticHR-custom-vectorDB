@@ -3,7 +3,7 @@ import axios from 'axios';
 import JobUploader from '../components/JobUploader';
 import WorkflowStatus from '../components/WorkflowStatus';
 import JobList from '../components/JobList';
-import { FileText, Brain, Star, Mail, UserCheck, Award, Calendar, CheckCircle } from 'lucide-react';
+import { FileText, Brain, Star, Mail, UserCheck, Award, Calendar, CheckCircle, Bot, FileSearch } from 'lucide-react';
 
 interface Job {
   id: number;
@@ -49,12 +49,43 @@ function AdminPage() {
   const [timerActive, setTimerActive] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
   const [invitationsSent, setInvitationsSent] = useState(0);
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
-    { title: 'Extracting Resumes', status: 'pending', icon: <FileText className="w-6 h-6" /> },
-    { title: 'Summarizing Jobs', status: 'pending', icon: <Brain className="w-6 h-6" /> },
-    { title: 'Computing Match Scores', status: 'pending', icon: <Star className="w-6 h-6" /> },
-    { title: 'Selecting Candidates', status: 'pending', icon: <UserCheck className="w-6 h-6" /> },
-    { title: 'Sending Invitations', status: 'pending', icon: <Mail className="w-6 h-6" /> }
+  const [workflowSteps, setWorkflowSteps] = useState([
+    { 
+      title: 'Extracting Data',
+      status: 'pending',
+      icon: <FileText className="w-6 h-6" />,
+      aiDescription: 'Parsing PDF resumes using advanced document processing'
+    },
+    {
+      title: 'Analyzing Resumes',
+      status: 'pending',
+      icon: <FileSearch className="w-6 h-6" />,
+      aiDescription: 'Extracting key skills, experience, and qualifications'
+    },
+    {
+      title: 'Processing Jobs',
+      status: 'pending',
+      icon: <Brain className="w-6 h-6" />,
+      aiDescription: 'Generating comprehensive job requirement analysis'
+    },
+    {
+      title: 'Computing Match',
+      status: 'pending',
+      icon: <Star className="w-6 h-6" />,
+      aiDescription: 'AI-powered candidate-job compatibility scoring'
+    },
+    {
+      title: 'Selecting Top',
+      status: 'pending',
+      icon: <UserCheck className="w-6 h-6" />,
+      aiDescription: 'Intelligent selection of best-matched candidates'
+    },
+    {
+      title: 'Sending Invites',
+      status: 'pending',
+      icon: <Mail className="w-6 h-6" />,
+      aiDescription: 'Automated interview invitation dispatch'
+    }
   ]);
 
   useEffect(() => {
@@ -96,6 +127,9 @@ function AdminPage() {
       await axios.post('http://localhost:5000/api/extract-pdf-data');
       await new Promise(resolve => setTimeout(resolve, 2000));
       updateStepStatus(0, 'completed');
+      updateStepStatus(1, 'processing');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      updateStepStatus(1, 'completed');
       return true;
     } catch (error) {
       console.error('Error extracting PDF data:', error);
@@ -105,10 +139,10 @@ function AdminPage() {
 
   const summarizeJobs = async () => {
     try {
-      updateStepStatus(1, 'processing');
+      updateStepStatus(2, 'processing');
       await axios.post('http://localhost:5000/api/summarize-job');
       await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(1, 'completed');
+      updateStepStatus(2, 'completed');
     } catch (error) {
       console.error('Error summarizing jobs:', error);
       throw error;
@@ -117,10 +151,10 @@ function AdminPage() {
 
   const computeMatchScores = async () => {
     try {
-      updateStepStatus(2, 'processing');
+      updateStepStatus(3, 'processing');
       await axios.post('http://localhost:5000/api/compute-matches');
       await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(2, 'completed');
+      updateStepStatus(3, 'completed');
     } catch (error) {
       console.error('Error computing match scores:', error);
       throw error;
@@ -129,10 +163,10 @@ function AdminPage() {
 
   const selectCandidates = async () => {
     try {
-      updateStepStatus(3, 'processing');
+      updateStepStatus(4, 'processing');
       await axios.post('http://localhost:5000/api/select-candidates');
       await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(3, 'completed');
+      updateStepStatus(4, 'completed');
       await fetchSelectedCandidates(); // Refresh selected candidates after selection
     } catch (error) {
       console.error('Error selecting candidates:', error);
@@ -142,10 +176,10 @@ function AdminPage() {
 
   const sendInvitations = async () => {
     try {
-      updateStepStatus(4, 'processing');
+      updateStepStatus(5, 'processing');
       await axios.post('http://localhost:5000/api/send-invitations');
       await new Promise(resolve => setTimeout(resolve, 2000));
-      updateStepStatus(4, 'completed');
+      updateStepStatus(5, 'completed');
       await fetchSelectedCandidates(); // Refresh selected candidates after sending invitations
     } catch (error) {
       console.error('Error sending invitations:', error);
@@ -236,9 +270,10 @@ function AdminPage() {
                   : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-lg hover:shadow-purple-500/25'
               }`}
             >
+              <Bot className="w-5 h-5 mr-2" />
               {processing 
-                ? `Processing (${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')})` 
-                : 'Start AI Selection'}
+                ? `AI Processing (${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')})` 
+                : 'Start AI Analysis'}
             </button>
           </div>
 
