@@ -55,7 +55,7 @@ function JobList({ jobs, applications }: JobListProps) {
   };
 
   const formatMatchScore = (score: number) => {
-    return `${(score * 100).toFixed(1)}%`;
+    return `${(score).toFixed(1)}%`;
   };
 
   return (

@@ -8,8 +8,74 @@ import os
 from langchain.document_loaders import PyMuPDFLoader
 from config import Config
 from utils import compute_match_score, job_summurizer
+from ai_agent import summarize_chain , match_chain,summarize_resume_chain
+import re
 
 def register_routes(app):
+
+    @app.route('/api/resume/upload', methods=['POST'])
+    def upload_resume():
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if file and file.filename.endswith('.pdf'):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(Config.RESUMES_FOLDER, filename)
+            file.save(filepath)
+            return jsonify({'message': 'Resume uploaded successfully', 'filename': filename}), 200
+        
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    @app.route('/api/jobs/upload', methods=['POST'])
+    def upload_jobs():
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+
+        if file and file.filename.endswith('.csv'):
+            try:
+                try:
+                    csv_content = file.read().decode('utf-8')
+                except UnicodeDecodeError:
+                    file.seek(0)
+                    csv_content = file.read().decode('cp1252')
+
+                csv_file = io.StringIO(csv_content)
+                csv_reader = csv.DictReader(csv_file)
+
+                conn = sqlite3.connect(Config.DATABASE_FILE)
+                c = conn.cursor()
+
+                c.execute('DELETE FROM jobs')
+
+                for row in csv_reader:
+                    c.execute('''
+                        INSERT INTO jobs (title, description, threshold, max_candidates)
+                        VALUES (?, ?, ?, ?)
+                    ''', (
+                        row['Job Title'],
+                        row['Job Description'],
+                        float(row.get('Threshold', 0.1)),
+                        int(row.get('Max Candidates', 5))
+                    ))
+
+                conn.commit()
+                conn.close()
+
+                return jsonify({'message': 'Jobs uploaded successfully'}), 200
+
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+
+        return jsonify({'error': 'Invalid file type'}), 400
+
     @app.route('/api/apply', methods=['POST'])
     def apply_job():
         data = request.json
@@ -52,6 +118,86 @@ def register_routes(app):
             if 'conn' in locals():
                 conn.close()
             return jsonify({'error': str(e)}), 500
+        
+
+
+    @app.route('/api/jobs', methods=['GET'])
+    def get_jobs():
+        try:
+            conn = sqlite3.connect(Config.DATABASE_FILE)
+            c = conn.cursor()
+            c.execute('''
+                SELECT id, title, description, threshold, max_candidates, summary
+                FROM jobs
+            ''')
+            jobs = c.fetchall()
+            conn.close()
+            
+            jobs_list = [{
+                'id': job[0],
+                'Job Title': job[1],
+                'Job Description': job[2],
+                'threshold': job[3],
+                'maxCandidatest': job[4],
+                'summary': job[5]
+            } for job in jobs]
+            return jsonify(jobs_list)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+
+    @app.route('/api/extract-pdf-data', methods=['POST'])
+    def extract_pdf_data():
+        try:
+            conn = sqlite3.connect(Config.DATABASE_FILE)
+            c = conn.cursor()
+            
+            c.execute('''
+                SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id
+                FROM applications a
+                JOIN jobs j ON a.job_id = j.id
+                WHERE a.extracted_data IS NULL
+            ''')
+            applications = c.fetchall()
+            
+            extracted_data = []
+            
+            for app in applications:
+                app_id, username, resume_filename, job_title, applied_at, job_id = app
+                resume_path = os.path.join(Config.RESUMES_FOLDER, resume_filename)
+                
+                if os.path.exists(resume_path):
+                    loader = PyMuPDFLoader(resume_path)
+                    docs = loader.load()
+                    resume_text = "\n".join([doc.page_content for doc in docs])
+                    # Run resume summarization chain
+                    resume_summarize = summarize_resume_chain.run(resume=resume_text)
+                    c.execute('''
+                        UPDATE applications 
+                        SET extracted_data = ? 
+                        WHERE id = ?
+                    ''', (resume_summarize, app_id))
+                    
+                    extracted_data.append({
+                        'username': username,
+                        'resume_text': resume_summarize,
+                        'job_title': job_title,
+                        'applied_at': applied_at,
+                        'job_id': job_id
+                    })
+            
+            conn.commit()
+            conn.close()
+            
+            return jsonify({
+                'message': 'PDF data extracted successfully',
+                'extracted_data': extracted_data
+            }), 200
+            
+        except Exception as e:
+            if 'conn' in locals():
+                conn.close()
+            return jsonify({'error': str(e)}), 500
 
     @app.route('/api/summarize-job', methods=['POST'])
     def summarize_job():
@@ -63,7 +209,7 @@ def register_routes(app):
             jobs = c.fetchall()
             
             for job_id, description in jobs:
-                summary = job_summurizer(description)
+                summary = summarize_chain.run(job_description=description).strip()
                 c.execute('UPDATE jobs SET summary = ? WHERE id = ?', (summary, job_id))
             
             conn.commit()
@@ -71,6 +217,39 @@ def register_routes(app):
             
             return jsonify({'message': 'Jobs summarized successfully'}), 200
         except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/compute-matches', methods=['POST'])
+    def compute_matches():
+        try:
+            conn = sqlite3.connect(Config.DATABASE_FILE)
+            c = conn.cursor()
+            c.execute('''
+                SELECT a.id, a.extracted_data, j.description
+                FROM applications a
+                JOIN jobs j ON a.job_id = j.id
+                WHERE a.extracted_data IS NOT NULL
+            ''')
+            applications = c.fetchall()
+
+            for app_id, extracted_data, job_description in applications:
+                match_score = match_chain.run(job_summary=job_description, resume=extracted_data) 
+                match = re.search(r'\d+', match_score)
+                match_score = int(match.group())
+
+                c.execute('''
+                    UPDATE applications
+                    SET match_score = ?
+                    WHERE id = ?
+                ''', (match_score, app_id))
+            
+            conn.commit()
+            conn.close()
+            return jsonify({'message': 'Match scores computed successfully'}), 200
+            
+        except Exception as e:
+            if 'conn' in locals():
+                conn.close()
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/select-candidates', methods=['POST'])
@@ -153,108 +332,6 @@ def register_routes(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/compute-matches', methods=['POST'])
-    def compute_matches():
-        try:
-            conn = sqlite3.connect(Config.DATABASE_FILE)
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT a.id, a.extracted_data, j.description
-                FROM applications a
-                JOIN jobs j ON a.job_id = j.id
-                WHERE a.extracted_data IS NOT NULL
-            ''')
-            applications = c.fetchall()
-            
-            for app_id, extracted_data, job_description in applications:
-                match_score = compute_match_score(extracted_data, job_description)
-                
-                c.execute('''
-                    UPDATE applications
-                    SET match_score = ?
-                    WHERE id = ?
-                ''', (match_score, app_id))
-            
-            conn.commit()
-            conn.close()
-            
-            return jsonify({'message': 'Match scores computed successfully'}), 200
-            
-        except Exception as e:
-            if 'conn' in locals():
-                conn.close()
-            return jsonify({'error': str(e)}), 500
-
-    @app.route('/api/jobs/upload', methods=['POST'])
-    def upload_jobs():
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-
-        if file and file.filename.endswith('.csv'):
-            try:
-                try:
-                    csv_content = file.read().decode('utf-8')
-                except UnicodeDecodeError:
-                    file.seek(0)
-                    csv_content = file.read().decode('cp1252')
-
-                csv_file = io.StringIO(csv_content)
-                csv_reader = csv.DictReader(csv_file)
-
-                conn = sqlite3.connect(Config.DATABASE_FILE)
-                c = conn.cursor()
-
-                c.execute('DELETE FROM jobs')
-
-                for row in csv_reader:
-                    c.execute('''
-                        INSERT INTO jobs (title, description, threshold, max_candidates)
-                        VALUES (?, ?, ?, ?)
-                    ''', (
-                        row['Job Title'],
-                        row['Job Description'],
-                        float(row.get('Threshold', 0.1)),
-                        int(row.get('Max Candidates', 5))
-                    ))
-
-                conn.commit()
-                conn.close()
-
-                return jsonify({'message': 'Jobs uploaded successfully'}), 200
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        return jsonify({'error': 'Invalid file type'}), 400
-
-    @app.route('/api/jobs', methods=['GET'])
-    def get_jobs():
-        try:
-            conn = sqlite3.connect(Config.DATABASE_FILE)
-            c = conn.cursor()
-            c.execute('''
-                SELECT id, title, description, threshold, max_candidates, summary
-                FROM jobs
-            ''')
-            jobs = c.fetchall()
-            conn.close()
-            
-            jobs_list = [{
-                'id': job[0],
-                'Job Title': job[1],
-                'Job Description': job[2],
-                'threshold': job[3],
-                'maxCandidates': job[4],
-                'summary': job[5]
-            } for job in jobs]
-            return jsonify(jobs_list)
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
 
     @app.route('/api/applications', methods=['GET'])
     def get_applications():
@@ -292,74 +369,6 @@ def register_routes(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/resume/upload', methods=['POST'])
-    def upload_resume():
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-        
-        if file and file.filename.endswith('.pdf'):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(Config.RESUMES_FOLDER, filename)
-            file.save(filepath)
-            return jsonify({'message': 'Resume uploaded successfully', 'filename': filename}), 200
-        
-        return jsonify({'error': 'Invalid file type'}), 400
-
-    @app.route('/api/extract-pdf-data', methods=['POST'])
-    def extract_pdf_data():
-        try:
-            conn = sqlite3.connect(Config.DATABASE_FILE)
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT a.id, a.username, a.resume_text, j.title, a.applied_at, a.job_id
-                FROM applications a
-                JOIN jobs j ON a.job_id = j.id
-                WHERE a.extracted_data IS NULL
-            ''')
-            applications = c.fetchall()
-            
-            extracted_data = []
-            
-            for app in applications:
-                app_id, username, resume_filename, job_title, applied_at, job_id = app
-                resume_path = os.path.join(Config.RESUMES_FOLDER, resume_filename)
-                
-                if os.path.exists(resume_path):
-                    loader = PyMuPDFLoader(resume_path)
-                    docs = loader.load()
-                    resume_text = "\n".join([doc.page_content for doc in docs])
-                    
-                    c.execute('''
-                        UPDATE applications 
-                        SET extracted_data = ? 
-                        WHERE id = ?
-                    ''', (resume_text, app_id))
-                    
-                    extracted_data.append({
-                        'username': username,
-                        'resume_text': resume_text,
-                        'job_title': job_title,
-                        'applied_at': applied_at,
-                        'job_id': job_id
-                    })
-            
-            conn.commit()
-            conn.close()
-            
-            return jsonify({
-                'message': 'PDF data extracted successfully',
-                'extracted_data': extracted_data
-            }), 200
-            
-        except Exception as e:
-            if 'conn' in locals():
-                conn.close()
-            return jsonify({'error': str(e)}), 500
 
     @app.route('/api/selected-candidates', methods=['GET'])
     def get_selected_candidates():
