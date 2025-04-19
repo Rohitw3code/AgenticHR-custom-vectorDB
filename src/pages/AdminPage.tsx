@@ -14,13 +14,20 @@ interface Job {
   summary?: string;
 }
 
+interface MatchScore {
+  experience_score: number;
+  skills_score: number;
+  education_score: number;
+  other_score: number;
+}
+
 interface Application {
   id: number;
   jobTitle: string;
   applicantName: string;
   resumeFile: string;
   appliedAt: string;
-  matchScore: number;
+  matchScore: string;
   selected: boolean;
   invitationSent: boolean;
 }
@@ -29,7 +36,7 @@ interface SelectedCandidate {
   id: number;
   username: string;
   jobTitle: string;
-  matchScore: number;
+  matchScore: string;
   selectedAt: string;
   invitationSent: boolean;
 }
@@ -87,6 +94,34 @@ function AdminPage() {
       aiDescription: 'Automated interview invitation dispatch'
     }
   ]);
+
+  const calculateAverageScore = (matchScore: string): number => {
+    try {
+      const scores: MatchScore = JSON.parse(matchScore);
+      return (
+        (scores.experience_score + 
+         scores.skills_score + 
+         scores.education_score + 
+         scores.other_score) / 4
+      );
+    } catch (e) {
+      return 0;
+    }
+  };
+
+  const formatMatchScore = (matchScore: string): string => {
+    try {
+      const scores: MatchScore = JSON.parse(matchScore);
+      return `${Math.round((
+        scores.experience_score + 
+        scores.skills_score + 
+        scores.education_score + 
+        scores.other_score
+      ) / 4)}%`;
+    } catch (e) {
+      return '0%';
+    }
+  };
 
   useEffect(() => {
     fetchJobs();
@@ -246,10 +281,6 @@ function AdminPage() {
     });
   };
 
-  const formatMatchScore = (score: number) => {
-    return `${(score).toFixed(1)}%`;
-  };
-
   return (
     <div className="space-y-8">
       <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-8 rounded-xl shadow-2xl">
@@ -335,4 +366,4 @@ function AdminPage() {
   );
 }
 
-export default AdminPage;
+export default AdminPage

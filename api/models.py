@@ -4,7 +4,7 @@ from config import Config
 def init_db():
     conn = sqlite3.connect(Config.DATABASE_FILE)
     c = conn.cursor()
-    
+
     # Create jobs table
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
@@ -17,7 +17,7 @@ def init_db():
             summary TEXT
         )
     ''')
-    
+
     # Create applications table with email field
     c.execute('''
         CREATE TABLE IF NOT EXISTS applications (
@@ -28,25 +28,29 @@ def init_db():
             job_id INTEGER NOT NULL,
             applied_at TEXT,
             extracted_data TEXT,
-            match_score REAL DEFAULT 0,
+            match_score TEXT DEFAULT '{}',
             selected BOOLEAN DEFAULT FALSE,
             invitation_sent BOOLEAN DEFAULT FALSE,
             FOREIGN KEY (job_id) REFERENCES jobs(id)
         )
     ''')
-    
-    # Create selected_candidates table
+
+    # Create selected_candidates table with application_id
     c.execute('''
         CREATE TABLE IF NOT EXISTS selected_candidates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
+            application_id INTEGER NOT NULL,
             job_id INTEGER NOT NULL,
-            match_score REAL NOT NULL,
+            match_score TEXT DEFAULT '{}',
             selected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (username) REFERENCES applications(username),
+            FOREIGN KEY (application_id) REFERENCES applications(id),
             FOREIGN KEY (job_id) REFERENCES jobs(id)
         )
     ''')
-    
+
+    # Create indexes for performance
+    c.execute('CREATE INDEX IF NOT EXISTS idx_applications_job_id ON applications(job_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_selected_candidates_job_id ON selected_candidates(job_id)')
+
     conn.commit()
     conn.close()

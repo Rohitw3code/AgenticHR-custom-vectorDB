@@ -8,7 +8,10 @@ import os
 from langchain.document_loaders import PyMuPDFLoader
 from config import Config
 from utils import compute_match_score, job_summurizer
-from ai_agent import summarize_chain , match_chain,summarize_resume_chain
+from ai_agent import summarize_chain, match_chain, summarize_resume_chain
+from ai_agent import match_score_structured_llm, match_prompt
+from ai_agent import filter_prompt_structured_llm, filter_prompt
+import json
 import re
 
 def register_routes(app):
@@ -118,8 +121,6 @@ def register_routes(app):
             if 'conn' in locals():
                 conn.close()
             return jsonify({'error': str(e)}), 500
-        
-
 
     @app.route('/api/jobs', methods=['GET'])
     def get_jobs():
@@ -144,7 +145,6 @@ def register_routes(app):
             return jsonify(jobs_list)
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-
 
     @app.route('/api/extract-pdf-data', methods=['POST'])
     def extract_pdf_data():
@@ -233,16 +233,16 @@ def register_routes(app):
             applications = c.fetchall()
 
             for app_id, extracted_data, job_description in applications:
-                match_score = match_chain.run(job_summary=job_description, resume=extracted_data) 
-                match = re.search(r'\d+', match_score)
-                match_score = int(match.group())
-
+                # Run structured LLM with prompt
+                prompt = match_prompt.format(job_description=job_description, resume_text=extracted_data)
+                match_score = match_score_structured_llm.invoke(prompt)            
+                match_score_json = json.dumps(match_score)
                 c.execute('''
                     UPDATE applications
                     SET match_score = ?
                     WHERE id = ?
-                ''', (match_score, app_id))
-            
+                ''', (match_score_json, app_id))
+        
             conn.commit()
             conn.close()
             return jsonify({'message': 'Match scores computed successfully'}), 200
@@ -254,33 +254,76 @@ def register_routes(app):
 
     @app.route('/api/select-candidates', methods=['POST'])
     def select_candidates():
-        try:
-            conn = sqlite3.connect(Config.DATABASE_FILE)
-            c = conn.cursor()
-            
-            # First, clear existing selected candidates
-            c.execute('DELETE FROM selected_candidates')
-            
-            # Reset selection status in applications
-            c.execute('UPDATE applications SET selected = FALSE')
-            
-            # Get all jobs
-            c.execute('SELECT id, threshold, max_candidates FROM jobs')
-            jobs = c.fetchall()
-            
-            for job_id, threshold, max_candidates in jobs:
-                # Get applications for this job, sorted by match score
-                c.execute('''
-                    SELECT id, username, match_score
-                    FROM applications
-                    WHERE job_id = ? AND match_score >= ?
-                    ORDER BY match_score DESC
-                    LIMIT ?
-                ''', (job_id, threshold, max_candidates))
-                
-                selected = c.fetchall()
-                
-                for app_id, username, score in selected:
+        # try:
+        # Connect to SQLite database
+        conn = sqlite3.connect(Config.DATABASE_FILE)
+        c = conn.cursor()
+
+        # Clear existing selected candidates
+        c.execute('DELETE FROM selected_candidates')
+
+        # Reset selection status in applications
+        c.execute('UPDATE applications SET selected = FALSE')
+
+        # Query all job IDs from jobs table
+        c.execute('SELECT id FROM jobs')
+        jobs = c.fetchall()
+
+        if not jobs:
+            conn.close()
+            return jsonify({"error": "No jobs found in the jobs table"}), 404
+
+        # Process each job
+        for job_id_tuple in jobs:
+            job_id = job_id_tuple[0]
+
+            # Query all candidates for the current job_id
+            c.execute('''
+                SELECT id, username, email, resume_text, job_id, applied_at, extracted_data,
+                        match_score, selected, invitation_sent
+                FROM applications
+                WHERE job_id = ?
+            ''', (job_id,))
+            rows = c.fetchall()
+
+            if not rows:
+                continue  # Skip if no applications for this job
+
+            # Prepare candidates for AI evaluation
+            candidates = []
+            for row in rows:
+                try:
+                    match_score = json.loads(row[7])  # match_score is the 8th column (index 7)
+                    if not all(k in match_score for k in ["experience_score", "skills_score", "education_score", "other_score"]):
+                        continue  # Skip invalid match scores
+                    candidates.append({
+                        "id": str(row[0]),  # Convert ID to string for JSON
+                        "match_score": match_score
+                    })
+                except json.JSONDecodeError:
+                    continue  # Skip invalid JSON
+
+            if not candidates:
+                continue  # Skip if no valid match scores
+
+            # Format candidates as JSON for the prompt
+            candidates_json = json.dumps(candidates)
+
+            # Run AI to select candidates (max_candidates = 2)
+            prompt = filter_prompt.format(candidates_json=candidates_json)
+            result = filter_prompt_structured_llm.invoke(prompt)
+
+            selected_ids = result.get("candidate_ids", [])
+
+            if not selected_ids:
+                continue  # Skip if no candidates selected
+
+            print("selected id : ",selected_ids)
+
+            # Update database for selected candidates
+            for row in rows:
+                app_id = str(row[0])
+                if app_id in selected_ids:
                     # Mark application as selected
                     c.execute('''
                         UPDATE applications
@@ -290,17 +333,20 @@ def register_routes(app):
                     
                     # Insert into selected_candidates table
                     c.execute('''
-                        INSERT INTO selected_candidates (username, job_id, match_score)
+                        INSERT INTO selected_candidates (application_id, job_id, match_score)
                         VALUES (?, ?, ?)
-                    ''', (username, job_id, score))
-            
-            conn.commit()
-            conn.close()
-            
-            return jsonify({'message': 'Candidates selected successfully'}), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+                    ''', (row[0], row[4], row[7]))  # application_id, job_id, match_score
 
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': 'Candidates filtered and selected successfully for all jobs'}), 200
+
+        # except Exception as e:
+        #     if 'conn' in locals():
+        #         conn.close()
+        #     return jsonify({'error': f"Failed to select candidates: {str(e)}"}), 500
+    
     @app.route('/api/send-invitations', methods=['POST'])
     def send_invitations():
         try:
@@ -332,7 +378,6 @@ def register_routes(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-
     @app.route('/api/applications', methods=['GET'])
     def get_applications():
         try:
@@ -346,7 +391,7 @@ def register_routes(app):
                     a.match_score, a.selected, a.invitation_sent
                 FROM applications a
                 JOIN jobs j ON a.job_id = j.id
-                ORDER BY a.match_score DESC
+                ORDER BY a.applied_at DESC
             ''')
             
             applications = c.fetchall()
@@ -369,7 +414,6 @@ def register_routes(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-
     @app.route('/api/selected-candidates', methods=['GET'])
     def get_selected_candidates():
         try:
@@ -379,15 +423,15 @@ def register_routes(app):
             c.execute('''
                 SELECT 
                     sc.id,
-                    sc.username,
+                    a.username,
                     j.title as job_title,
                     sc.match_score,
                     sc.selected_at,
                     a.invitation_sent
                 FROM selected_candidates sc
+                JOIN applications a ON sc.application_id = a.id
                 JOIN jobs j ON sc.job_id = j.id
-                JOIN applications a ON a.username = sc.username AND a.job_id = sc.job_id
-                ORDER BY sc.match_score DESC, sc.selected_at DESC
+                ORDER BY sc.selected_at DESC
             ''')
             
             candidates = c.fetchall()
@@ -404,4 +448,6 @@ def register_routes(app):
             
             return jsonify(candidates_list)
         except Exception as e:
+            if 'conn' in locals():
+                conn.close()
             return jsonify({'error': str(e)}), 500
