@@ -16,23 +16,69 @@ An AI-powered recruitment platform that revolutionizes the hiring process throug
 ## 🌟 Features
 
 ### For Job Seekers
-- 📝 Easy job application process
-- 📄 PDF resume upload and parsing
-- 🔍 Smart job search and filtering
-- 💼 Real-time application status tracking
+- 📝 Easy job application process with PDF resume upload
+- 🔍 Smart job search with real-time filtering
+- 💼 User-friendly application interface
+- 📄 Detailed job descriptions with AI-generated summaries
 
 ### For Recruiters
-- 🤖 AI-powered candidate screening
-- 📊 Intelligent match scoring
-- 🎯 Automated candidate selection
-- ✉️ Automated interview invitations
-- 📈 Comprehensive analytics dashboard
+- 🤖 AI-powered candidate screening and ranking
+- 📊 Intelligent match scoring across multiple criteria
+- 🎯 Automated candidate selection based on thresholds
+- ✉️ Automated interview invitation system
+- 📈 Real-time application tracking and monitoring
 
-### AI Capabilities
-- 🧠 Advanced resume parsing
-- 🎯 Precise job-candidate matching
-- 📋 Automated job summarization
-- 🔄 Smart candidate ranking
+## 🔄 Detailed Workflow
+
+### 1. Job Management
+- **CSV Upload**: Recruiters upload jobs via CSV with fields:
+  - Job Title
+  - Job Description
+  - Threshold (minimum match score)
+  - Max Candidates (selection limit)
+- **AI Processing**: System automatically generates concise summaries for each job
+
+### 2. Application Process
+- **Candidate Input**:
+  - Personal details (name, email)
+  - PDF resume upload
+- **Resume Processing**:
+  - PDF parsing and text extraction
+  - Key data identification (experience, skills, education)
+  - Structured data storage
+
+### 3. AI Analysis Pipeline
+1. **Data Extraction**:
+   - Parse PDF resumes
+   - Extract relevant information
+   - Structure data for analysis
+
+2. **Resume Analysis**:
+   - Process candidate qualifications
+   - Identify key skills and experience
+   - Generate structured profiles
+
+3. **Job Processing**:
+   - Analyze job requirements
+   - Generate comprehensive summaries
+   - Define matching criteria
+
+4. **Match Computation**:
+   - Calculate scores across categories:
+     - Experience (0-100)
+     - Skills (0-100)
+     - Education (0-100)
+     - Other requirements (0-100)
+
+5. **Candidate Selection**:
+   - Filter based on threshold scores
+   - Rank candidates by match quality
+   - Select top matches within limits
+
+6. **Automated Communication**:
+   - Send interview invitations
+   - Update application statuses
+   - Track communication history
 
 ## 🏗️ Project Structure
 
@@ -40,47 +86,44 @@ An AI-powered recruitment platform that revolutionizes the hiring process throug
 AgenticHR/
 ├── api/                      # Backend API
 │   ├── __init__.py          # API initialization
-│   ├── app.py               # Main application entry
-│   ├── config.py            # Configuration settings
+│   ├── ai_agent.py          # AI processing logic
+│   ├── app.py               # Main application
+│   ├── config.py            # Configuration
 │   ├── models.py            # Database models
 │   ├── routes.py            # API endpoints
 │   └── utils.py             # Utility functions
 │
 ├── src/                     # Frontend source
 │   ├── components/          # React components
-│   │   ├── JobList.tsx     # Job listing component
-│   │   ├── JobUploader.tsx # Job upload component
-│   │   └── WorkflowStatus  # Workflow status component
+│   │   ├── JobList         # Job listing
+│   │   ├── JobUploader     # CSV upload
+│   │   └── WorkflowStatus  # AI pipeline status
 │   │
 │   ├── pages/              # Page components
-│   │   ├── AdminPage.tsx   # Admin dashboard
-│   │   ├── LandingPage.tsx # Landing page
-│   │   └── UserPage.tsx    # User portal
+│   │   ├── AdminPage       # Admin dashboard
+│   │   ├── LandingPage     # Home page
+│   │   └── UserPage        # Candidate portal
 │   │
-│   ├── App.tsx             # Main React component
-│   └── main.tsx            # Application entry point
-│
-└── public/                  # Static assets
+│   ├── App.tsx             # Main component
+│   └── main.tsx            # Entry point
 ```
 
 ## 🚀 Getting Started
 
-1. **Clone the repository**
+1. **Clone and Install**
    ```bash
    git clone https://github.com/yourusername/AgenticHR.git
    cd AgenticHR
-   ```
-
-2. **Install dependencies**
-   ```bash
-   # Install frontend dependencies
    npm install
-
-   # Install backend dependencies
    pip install -r requirements.txt
    ```
 
-3. **Start the development servers**
+2. **Configure Environment**
+   - Set up Groq API key for AI processing
+   - Configure database paths
+   - Set up upload directories
+
+3. **Start Services**
    ```bash
    # Start frontend
    npm run dev
@@ -89,83 +132,94 @@ AgenticHR/
    npm run api
    ```
 
-## 🛠️ Technology Stack
-
-### Frontend
-- React 18
-- TypeScript
-- Tailwind CSS
-- Vite
-- React Router
-- Lucide React Icons
-
-### Backend
-- Flask
-- SQLite
-- LangChain
-- Groq AI
-- scikit-learn
-
-## 🔄 Workflow
-
-1. **Job Posting**
-   - Recruiters upload jobs via CSV
-   - AI generates job summaries
-   - Jobs are stored in the database
-
-2. **Application Process**
-   - Candidates upload resumes
-   - System extracts data from PDFs
-   - Match scores are computed
-
-3. **Selection Process**
-   - AI ranks candidates by match score
-   - System filters based on thresholds
-   - Top candidates are automatically selected
-
-4. **Communication**
-   - Selected candidates receive invitations
-   - Application status is updated
-   - Recruiters can track progress
-
 ## 📊 Database Schema
 
-### Jobs Table
-- `id`: Primary key
-- `title`: Job title
-- `description`: Full job description
-- `threshold`: Minimum match score
-- `max_candidates`: Selection limit
-- `summary`: AI-generated summary
+### Jobs
+```sql
+CREATE TABLE jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    threshold REAL DEFAULT 0.1,
+    max_candidates INTEGER DEFAULT 5,
+    summary TEXT
+);
+```
 
-### Applications Table
-- `id`: Primary key
-- `username`: Applicant name
-- `resume_text`: Parsed resume
-- `job_id`: Foreign key to jobs
-- `match_score`: AI-computed score
-- `selected`: Selection status
-- `invitation_sent`: Invitation status
+### Applications
+```sql
+CREATE TABLE applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    email TEXT NOT NULL,
+    resume_text TEXT,
+    job_id INTEGER NOT NULL,
+    applied_at TEXT,
+    extracted_data TEXT,
+    match_score TEXT DEFAULT '{}',
+    selected BOOLEAN DEFAULT FALSE,
+    invitation_sent BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+```
 
-### Selected Candidates Table
-- `id`: Primary key
-- `username`: Selected candidate
-- `job_id`: Related job
-- `match_score`: Final match score
-- `selected_at`: Selection timestamp
+### Selected Candidates
+```sql
+CREATE TABLE selected_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_id INTEGER NOT NULL,
+    job_id INTEGER NOT NULL,
+    match_score TEXT DEFAULT '{}',
+    selected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_id) REFERENCES applications(id),
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
+```
 
 ## 🎨 UI Features
 
-- Dark theme with purple accents
-- Responsive design
-- Interactive animations
-- Modern glassmorphism effects
-- Progress indicators
-- Real-time updates
+- **Modern Design**:
+  - Dark theme with purple accents
+  - Glassmorphism effects
+  - Responsive layouts
+  - Interactive animations
+
+- **Real-time Updates**:
+  - Live status indicators
+  - Progress tracking
+  - Dynamic content loading
+
+- **User Experience**:
+  - Intuitive navigation
+  - Clear feedback
+  - Smooth transitions
+  - Accessible interface
+
+## 🛠️ Technology Stack
+
+### Frontend
+- React 18 with TypeScript
+- Tailwind CSS for styling
+- Vite for development
+- Lucide React for icons
+- React Router for navigation
+
+### Backend
+- Flask for API
+- SQLite for database
+- LangChain for AI processing
+- Groq for language models
+- scikit-learn for computations
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+We welcome contributions! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
 ## 📝 License
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Star, Mail, UserCheck, ChevronDown, ChevronUp, Clock, Briefcase } from 'lucide-react';
+import { FileText, Star, Mail, UserCheck, ChevronDown, ChevronUp, Clock, Briefcase, Bot, AlertCircle } from 'lucide-react';
 
 interface Job {
   id: number;
@@ -57,12 +57,8 @@ function JobList({ jobs, applications }: JobListProps) {
   const calculateAverageScore = (matchScore: string): number => {
     try {
       const scores: MatchScore = JSON.parse(matchScore);
-      return (
-        (scores.experience_score + 
-         scores.skills_score + 
-         scores.education_score + 
-         scores.other_score) / 4
-      );
+      const validScores = Object.values(scores).filter(score => score !== undefined && score !== null);
+      return validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
     } catch (e) {
       return 0;
     }
@@ -79,14 +75,12 @@ function JobList({ jobs, applications }: JobListProps) {
   const formatMatchScore = (matchScore: string): string => {
     try {
       const scores: MatchScore = JSON.parse(matchScore);
-      return `${Math.round((
-        scores.experience_score + 
-        scores.skills_score + 
-        scores.education_score + 
-        scores.other_score
-      ) / 4)}%`;
+      const validScores = Object.values(scores).filter(score => score !== undefined && score !== null);
+      return validScores.length > 0 
+        ? `${Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)}%`
+        : 'Pending Analysis';
     } catch (e) {
-      return '0%';
+      return 'Pending Analysis';
     }
   };
 
@@ -115,18 +109,20 @@ function JobList({ jobs, applications }: JobListProps) {
           {jobs.map((job) => (
             <div 
               key={job.id} 
-              className="bg-purple-900/20 rounded-xl border border-purple-500/20 overflow-hidden transition-all duration-300 hover:border-purple-500/40"
+              className="bg-gradient-to-br from-purple-900/20 to-indigo-900/20 rounded-xl border border-purple-500/20 overflow-hidden transition-all duration-300 hover:border-purple-500/40 hover:shadow-lg hover:shadow-purple-500/10"
             >
               <div className="p-6">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-xl font-bold text-purple-300">{job['Job Title']}</h3>
+                    <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-300 to-indigo-300">
+                      {job['Job Title']}
+                    </h3>
                     <div className="mt-2 flex items-center space-x-4 text-sm text-gray-400">
-                      <div className="flex items-center">
+                      <div className="flex items-center px-3 py-1 rounded-full bg-purple-900/30 border border-purple-500/20">
                         <Star className="w-4 h-4 mr-1 text-purple-400" />
                         <span>Threshold: {job.threshold}%</span>
                       </div>
-                      <div className="flex items-center">
+                      <div className="flex items-center px-3 py-1 rounded-full bg-purple-900/30 border border-purple-500/20">
                         <UserCheck className="w-4 h-4 mr-1 text-purple-400" />
                         <span>Max Candidates: {job.maxCandidates}</span>
                       </div>
@@ -148,7 +144,10 @@ function JobList({ jobs, applications }: JobListProps) {
                   <div className="mt-6 space-y-4">
                     {job.summary && (
                       <div className="p-4 bg-purple-900/30 rounded-lg border border-purple-500/20">
-                        <h4 className="text-sm font-medium text-purple-300 mb-2">Summary</h4>
+                        <h4 className="text-sm font-medium text-purple-300 mb-2 flex items-center">
+                          <Bot className="w-4 h-4 mr-2" />
+                          AI Summary
+                        </h4>
                         <p className="text-gray-300">{job.summary}</p>
                       </div>
                     )}
@@ -168,7 +167,7 @@ function JobList({ jobs, applications }: JobListProps) {
                     .map((application) => (
                       <div
                         key={application.id}
-                        className="bg-purple-900/30 rounded-lg p-4 border border-purple-500/20 hover:border-purple-500/40 transition-all duration-300"
+                        className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 rounded-lg p-4 border border-purple-500/20 hover:border-purple-500/40 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/10"
                       >
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                           <div className="flex-1">
@@ -206,18 +205,34 @@ function JobList({ jobs, applications }: JobListProps) {
                                   className="bg-purple-900/20 px-3 py-2 rounded-lg border border-purple-500/10"
                                 >
                                   <div className="text-xs text-gray-400">{score.label}</div>
-                                  <div className={`text-sm font-medium ${getMatchScoreColor(application.matchScore, job.threshold)}`}>
-                                    {score.score}%
-                                  </div>
+                                  {score.score !== undefined && score.score !== null ? (
+                                    <div className={`text-sm font-medium ${getMatchScoreColor(application.matchScore, job.threshold)}`}>
+                                      {score.score}%
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center text-xs text-gray-500">
+                                      <AlertCircle className="w-3 h-3 mr-1" />
+                                      Pending
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
                           </div>
                           <div className="flex items-center space-x-2 bg-purple-900/40 px-4 py-2 rounded-lg border border-purple-500/20">
-                            <Star className={`w-5 h-5 ${getMatchScoreColor(application.matchScore, job.threshold)}`} />
-                            <span className={`font-medium ${getMatchScoreColor(application.matchScore, job.threshold)}`}>
-                              {formatMatchScore(application.matchScore)}
-                            </span>
+                            {formatMatchScore(application.matchScore) !== 'Pending Analysis' ? (
+                              <>
+                                <Star className={`w-5 h-5 ${getMatchScoreColor(application.matchScore, job.threshold)}`} />
+                                <span className={`font-medium ${getMatchScoreColor(application.matchScore, job.threshold)}`}>
+                                  {formatMatchScore(application.matchScore)}
+                                </span>
+                              </>
+                            ) : (
+                              <div className="flex items-center text-gray-400">
+                                <Bot className="w-5 h-5 mr-2 animate-pulse" />
+                                <span className="text-sm">AI Analysis Pending</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

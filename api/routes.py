@@ -266,7 +266,7 @@ def register_routes(app):
         c.execute('UPDATE applications SET selected = FALSE')
 
         # Query all job IDs from jobs table
-        c.execute('SELECT id FROM jobs')
+        c.execute('SELECT * FROM jobs')
         jobs = c.fetchall()
 
         if not jobs:
@@ -276,6 +276,11 @@ def register_routes(app):
         # Process each job
         for job_id_tuple in jobs:
             job_id = job_id_tuple[0]
+
+
+            print("job id  tuple : ",job_id_tuple)
+
+            job_data = job_id_tuple[6]
 
             # Query all candidates for the current job_id
             c.execute('''
@@ -310,7 +315,7 @@ def register_routes(app):
             candidates_json = json.dumps(candidates)
 
             # Run AI to select candidates (max_candidates = 2)
-            prompt = filter_prompt.format(candidates_json=candidates_json)
+            prompt = filter_prompt.format(candidates_json=candidates_json,job_data=job_data)
             result = filter_prompt_structured_llm.invoke(prompt)
 
             selected_ids = result.get("candidate_ids", [])

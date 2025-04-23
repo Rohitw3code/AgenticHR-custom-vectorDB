@@ -87,20 +87,34 @@ class SelectedCandidates(TypedDict):
 # Create structured LLM
 filter_prompt_structured_llm = llm.with_structured_output(SelectedCandidates)
 
-# Filter Candidates Prompt
+# Enhanced Filter Candidates Prompt with job_data and analysis instruction
 filter_prompt = ChatPromptTemplate.from_template(
-    """You are an expert recruiter selecting candidates for a job based on their match scores. Each candidate has a JSON match score with four fields: experience_score, skills_score, education_score, and other_score (all 0-100). 
-    Your task is to return only 2 candidates id who best match the job requirements by qualitatively evaluating their scores.
-    Do not perform any mathematical calculations (e.g., averaging). Consider the balance and relevance of all scores to make a holistic judgment.
+    """You are an expert recruiter selecting candidates for a job based on their match scores. 
+    Each candidate has a JSON match score with four fields: experience_score, skills_score, education_score, and other_score (all 0-100). 
+    Your task is to evaluate which candidates are the best fit for the given job role by qualitatively analyzing their scores.
+
+    Job Description:
+    {job_data}
 
     Candidates:
     {candidates_json}
 
-    Provide the IDs of the selected candidates in the following JSON format:
+    Instructions:
+    - Carefully analyze each candidate based on how well their scores align with the job role.
+    - Consider the balance and relevance of all scores for the job requirements.
+    - Do not perform any mathematical calculations like averaging.
+    - Make a holistic judgment considering all score dimensions and how they relate to the job.
+
+    Your Response:
+    - First analyze and filter out any clearly unsuitable candidates.
+    - From the remaining ones, choose up to 2 candidate IDs who are the best fit.
+    - Provide the IDs of the selected candidates in the following JSON format:
+
     ```json
     {{
-      "candidate_ids": ["<id1>", "<id2>", ...]
+      "candidate_ids": ["<id1>", "<id2>"]
     }}
     ```
-    If no candidates are suitable, return an empty list. limit the max to 2 only"""
+    If no candidates are suitable, return an empty list. Limit the max to 2 only.
+    """
 )
