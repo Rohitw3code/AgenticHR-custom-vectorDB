@@ -5,7 +5,7 @@ def init_db():
     conn = sqlite3.connect(Config.DATABASE_FILE)
     c = conn.cursor()
 
-    # Create jobs table
+    # Create jobs table with embedding column
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -14,11 +14,12 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             threshold REAL DEFAULT 0.1,
             max_candidates INTEGER DEFAULT 5,
-            summary TEXT
+            summary TEXT,
+            embedding TEXT  -- Store JSON-serialized embedding
         )
     ''')
 
-    # Create applications table with email field
+    # Create applications table with email and embedding fields
     c.execute('''
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,6 +32,7 @@ def init_db():
             match_score TEXT DEFAULT '{}',
             selected BOOLEAN DEFAULT FALSE,
             invitation_sent BOOLEAN DEFAULT FALSE,
+            embedding TEXT,  -- Store JSON-serialized embedding
             FOREIGN KEY (job_id) REFERENCES jobs(id)
         )
     ''')

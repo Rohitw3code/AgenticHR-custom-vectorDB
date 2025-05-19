@@ -13,6 +13,11 @@ from ai_agent import match_score_structured_llm, match_prompt
 from ai_agent import filter_prompt_structured_llm, filter_prompt
 import json
 import re
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+# Initialize the embedding model (using a lightweight transformer model)
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def register_routes(app):
 
@@ -144,7 +149,7 @@ def register_routes(app):
             } for job in jobs]
             return jsonify(jobs_list)
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': str(e)}), 500 
 
     @app.route('/api/extract-pdf-data', methods=['POST'])
     def extract_pdf_data():
@@ -172,11 +177,15 @@ def register_routes(app):
                     resume_text = "\n".join([doc.page_content for doc in docs])
                     # Run resume summarization chain
                     resume_summarize = summarize_resume_chain.run(resume=resume_text)
+                    # Generate embedding for resume summary
+                    resume_embedding = embedding_model.encode(resume_summarize)
+                    # Store embedding as JSON string
+                    embedding_json = json.dumps(resume_embedding.tolist())
                     c.execute('''
                         UPDATE applications 
-                        SET extracted_data = ? 
+                        SET extracted_data = ?, embedding = ?
                         WHERE id = ?
-                    ''', (resume_summarize, app_id))
+                    ''', (resume_summarize, embedding_json, app_id))
                     
                     extracted_data.append({
                         'username': username,
@@ -210,7 +219,11 @@ def register_routes(app):
             
             for job_id, description in jobs:
                 summary = summarize_chain.run(job_description=description).strip()
-                c.execute('UPDATE jobs SET summary = ? WHERE id = ?', (summary, job_id))
+                # Generate embedding for job summary
+                job_embedding = embedding_model.encode(summary)
+                # Store embedding as JSON string
+                embedding_json = json.dumps(job_embedding.tolist())
+                c.execute('UPDATE jobs SET summary = ?, embedding = ? WHERE id = ?', (summary, embedding_json, job_id))
             
             conn.commit()
             conn.close()
@@ -254,103 +267,109 @@ def register_routes(app):
 
     @app.route('/api/select-candidates', methods=['POST'])
     def select_candidates():
-        # try:
-        # Connect to SQLite database
-        conn = sqlite3.connect(Config.DATABASE_FILE)
-        c = conn.cursor()
+        try:
+            # Connect to SQLite database
+            conn = sqlite3.connect(Config.DATABASE_FILE)
+            c = conn.cursor()
 
-        # Clear existing selected candidates
-        c.execute('DELETE FROM selected_candidates')
+            # Clear existing selected candidates
+            c.execute('DELETE FROM selected_candidates')
 
-        # Reset selection status in applications
-        c.execute('UPDATE applications SET selected = FALSE')
+            # Reset selection status in applications
+            c.execute('UPDATE applications SET selected = FALSE')
 
-        # Query all job IDs from jobs table
-        c.execute('SELECT * FROM jobs')
-        jobs = c.fetchall()
+            # Query all job IDs and embeddings from jobs table
+            c.execute('SELECT id, summary, embedding FROM jobs')
+            jobs = c.fetchall()
 
-        if not jobs:
-            conn.close()
-            return jsonify({"error": "No jobs found in the jobs table"}), 404
+            if not jobs:
+                conn.close()
+                return jsonify({"error": "No jobs found in the jobs table"}), 404
 
-        # Process each job
-        for job_id_tuple in jobs:
-            job_id = job_id_tuple[0]
+            # Process each job
+            for job_id, job_summary, job_embedding_json in jobs:
+                if not job_summary or not job_embedding_json:
+                    continue  # Skip jobs without summaries or embeddings
 
-
-            print("job id  tuple : ",job_id_tuple)
-
-            job_data = job_id_tuple[6]
-
-            # Query all candidates for the current job_id
-            c.execute('''
-                SELECT id, username, email, resume_text, job_id, applied_at, extracted_data,
-                        match_score, selected, invitation_sent
-                FROM applications
-                WHERE job_id = ?
-            ''', (job_id,))
-            rows = c.fetchall()
-
-            if not rows:
-                continue  # Skip if no applications for this job
-
-            # Prepare candidates for AI evaluation
-            candidates = []
-            for row in rows:
+                # Load job embedding
                 try:
-                    match_score = json.loads(row[7])  # match_score is the 8th column (index 7)
-                    if not all(k in match_score for k in ["experience_score", "skills_score", "education_score", "other_score"]):
-                        continue  # Skip invalid match scores
-                    candidates.append({
-                        "id": str(row[0]),  # Convert ID to string for JSON
-                        "match_score": match_score
-                    })
+                    job_embedding = np.array(json.loads(job_embedding_json), dtype=np.float32)
                 except json.JSONDecodeError:
-                    continue  # Skip invalid JSON
+                    continue  # Skip if embedding is invalid
 
-            if not candidates:
-                continue  # Skip if no valid match scores
+                # Normalize job embedding
+                job_embedding = job_embedding / np.linalg.norm(job_embedding)
 
-            # Format candidates as JSON for the prompt
-            candidates_json = json.dumps(candidates)
+                # Query all candidates for the current job_id
+                c.execute('''
+                    SELECT id, username, email, resume_text, job_id, applied_at, extracted_data,
+                           match_score, selected, invitation_sent, embedding
+                    FROM applications
+                    WHERE job_id = ?
+                ''', (job_id,))
+                rows = c.fetchall()
 
-            # Run AI to select candidates (max_candidates = 2)
-            prompt = filter_prompt.format(candidates_json=candidates_json,job_data=job_data)
-            result = filter_prompt_structured_llm.invoke(prompt)
+                if not rows:
+                    continue  # Skip if no applications for this job
 
-            selected_ids = result.get("candidate_ids", [])
+                # Compute similarity scores for candidates
+                candidates = []
+                for row in rows:
+                    embedding_json = row[10]  # embedding is the 11th column
+                    if not embedding_json:
+                        continue
+                    try:
+                        resume_embedding = np.array(json.loads(embedding_json), dtype=np.float32)
+                        # Normalize resume embedding
+                        resume_embedding = resume_embedding / np.linalg.norm(resume_embedding)
+                        # Compute cosine similarity
+                        similarity = float(np.dot(job_embedding, resume_embedding))
+                        candidates.append({
+                            'id': str(row[0]),
+                            'similarity': similarity
+                        })
+                    except json.JSONDecodeError:
+                        continue  # Skip invalid embeddings
 
-            if not selected_ids:
-                continue  # Skip if no candidates selected
+                if not candidates:
+                    continue  # Skip if no valid embeddings
 
-            print("selected id : ",selected_ids)
+                # Sort candidates by similarity and select top 2
+                candidates.sort(key=lambda x: x['similarity'], reverse=True)
+                selected_ids = [c['id'] for c in candidates[:2]]  # Max 2 candidates
 
-            # Update database for selected candidates
-            for row in rows:
-                app_id = str(row[0])
-                if app_id in selected_ids:
-                    # Mark application as selected
-                    c.execute('''
-                        UPDATE applications
-                        SET selected = TRUE
-                        WHERE id = ?
-                    ''', (app_id,))
-                    
-                    # Insert into selected_candidates table
-                    c.execute('''
-                        INSERT INTO selected_candidates (application_id, job_id, match_score)
-                        VALUES (?, ?, ?)
-                    ''', (row[0], row[4], row[7]))  # application_id, job_id, match_score
+                if not selected_ids:
+                    continue  # Skip if no candidates selected
 
-        conn.commit()
-        conn.close()
+                # Update database for selected candidates
+                for row in rows:
+                    app_id = str(row[0])
+                    if app_id in selected_ids:
+                        # Mark application as selected
+                        c.execute('''
+                            UPDATE applications
+                            SET selected = TRUE
+                            WHERE id = ?
+                        ''', (app_id,))
+                        
+                        # Find similarity score for this candidate
+                        similarity = next(c['similarity'] for c in candidates if c['id'] == app_id)
+                        # Store similarity as match_score
+                        match_score = {'similarity': similarity}
+                        c.execute('''
+                            INSERT INTO selected_candidates (application_id, job_id, match_score)
+                            VALUES (?, ?, ?)
+                        ''', (row[0], row[4], json.dumps(match_score)))
 
-        return jsonify({'message': 'Candidates filtered and selected successfully for all jobs'}), 200
+            conn.commit()
+            conn.close()
 
-        # except Exception as e:
-        #     if 'conn' in locals():
-        #         conn.close()
-        #     return jsonify({'error': f"Failed to select candidates: {str(e)}"}), 500
+            return jsonify({'message': 'Candidates filtered and selected successfully for all jobs'}), 200
+
+        except Exception as e:
+            if 'conn' in locals():
+                conn.close()
+            return jsonify({'error': f"Failed to select candidates: {str(e)}"}), 500
     
     @app.route('/api/send-invitations', methods=['POST'])
     def send_invitations():

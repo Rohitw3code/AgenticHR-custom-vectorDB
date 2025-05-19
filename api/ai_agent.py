@@ -8,7 +8,7 @@ import os
 # Initialize Groq LLM
 llm = ChatGroq(
     model_name="llama3-8b-8192",
-    api_key="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",
+    api_key="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",
     temperature=0.5
 )
 
