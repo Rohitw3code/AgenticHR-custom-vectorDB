@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
 # Set your Groq API key
-groq_api_key = "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"
+groq_api_key = "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"
 
 def compute_match_score(resume_text, job_description):
     if not resume_text or not job_description:
