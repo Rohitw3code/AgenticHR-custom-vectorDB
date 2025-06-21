@@ -1,6 +1,6 @@
 <div align="center">
   
-# AgenticHR by LaperMind
+# AgenticHR
 
 ![AgenticHR](https://img.shields.io/badge/AgenticHR-AI%20Powered%20Recruitment-purple?style=for-the-badge)
 
